@@ -1,0 +1,47 @@
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Test / lint cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Research data
+data/raw/
+data/processed/
+data/external/
+
+# Research outputs
+results/
+
+# Common large data formats
+*.parquet
+*.feather
+*.dta
+*.sas7bdat
+*.rds
+*.h5
+*.hdf5
+*.sqlite
+*.db
+*.zip
+*.tar.gz
+
+# Logs / temp
+*.log
+tmp/
+temp/
+
+# Secrets
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
