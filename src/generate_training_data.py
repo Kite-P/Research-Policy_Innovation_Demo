@@ -188,7 +188,7 @@ def build_financials(rng):
             )
 
     frame = pd.DataFrame(rows)
-    
+
     mixed_columns = [
     "total_assets",
     "total_liabilities",
