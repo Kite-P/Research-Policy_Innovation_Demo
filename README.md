@@ -43,6 +43,32 @@ Python 3.13.15
 
 ## 当前进展
 
+### 2026-09-17：财务面板正式清洗
+
+已完成模拟财务面板第一轮正式清洗：
+
+- 将 260 条原始记录清洗为 240 个唯一 firm-year；
+- 完成股票代码、年份和主要财务数值字段标准化；
+- 区分并处理完全重复与冲突重复记录；
+- 完成 ROE 口径核验和已确认异常处理；
+- 保留无法无依据填补的缺失值；
+- 输出经过验证的 Parquet 与 Stata 数据版本；
+- 完成 Python 回读和 Stata/MP 实际加载验证。
+
+技术过程：
+
+[`notebooks/02_data_cleaning.ipynb`](notebooks/02_data_cleaning.ipynb)
+
+阶段进展报告：
+
+[`docs/progress_2026-09-17.md`](docs/progress_2026-09-17.md)
+
+Stata 数据验证：
+
+[`stata/01_validate_clean_financials.do`](stata/01_validate_clean_financials.do)
+
+下一阶段进入公司基本信息与专利数据的清洗和匹配。
+
 ### 2026-09-16：原始财务数据审计
 
 已完成第一阶段科研数据工程训练：
