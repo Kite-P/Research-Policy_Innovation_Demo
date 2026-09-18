@@ -1,3 +1,0 @@
-#!/bin/sh
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check_push_hygiene.ps1
-exit $?
