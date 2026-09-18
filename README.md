@@ -43,6 +43,37 @@ Python 3.13.15
 
 ## 当前进展
 
+### 2026-09-18：公司基本信息清洗
+
+已完成模拟公司基本信息数据的审计和正式清洗：
+
+- 标准化 42 家公司的股票代码、公司名称和省级地区；
+- 统一多种上市日期格式，包括 Excel 日期序列号；
+- 保留所有制和上市日期中的真实缺失；
+- 验证公司级 `stock_code` 主键唯一；
+- 财务面板全部 40 家公司均能成功匹配公司基本信息；
+- Profile 中额外 2 家公司被识别为财务样本外记录；
+- 输出并验证 Parquet 与 Stata 数据版本；
+- 完成 Stata/MP 实际加载和主键验证。
+
+审计过程：
+
+[`notebooks/03_profile_audit.ipynb`](notebooks/03_profile_audit.ipynb)
+
+正式清洗：
+
+[`notebooks/04_profile_cleaning.ipynb`](notebooks/04_profile_cleaning.ipynb)
+
+阶段进展报告：
+
+[`docs/progress_2026-09-18.md`](docs/progress_2026-09-18.md)
+
+Stata 验证：
+
+[`stata/02_validate_clean_profile.do`](stata/02_validate_clean_profile.do)
+
+下一阶段进入专利数据审计和清洗。
+
 ### 2026-09-17：财务面板正式清洗
 
 已完成模拟财务面板第一轮正式清洗：
