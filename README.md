@@ -183,6 +183,29 @@ Notebook、测试与 Stata 验证：
 
 [`stata/05_validate_research_variables.do`](stata/05_validate_research_variables.do)
 
+下一阶段进入描述统计、相关性和第一版固定效应 baseline diagnostic。
+
+### 2026-09-18：描述统计与第一版基准诊断
+
+已完成第一阶段分析管线：
+
+- 输出样本流、22 个变量的描述统计和 10 个主要连续变量的 Pearson pairwise correlation；
+- 同步输出每对相关系数实际使用的观测数 `correlation_n.csv`；
+- Stata/MP 18 使用 `xtreg ..., fe vce(cluster firm_id)` 加 `i.year` 完成三组诊断模型；
+- Model A `patent_total_ln`：研发强度系数 -0.250261，SE 0.488121，p=0.611051，N=213，within R2=0.028313；
+- Model B `invention_ln`：研发强度系数 0.622818，SE 0.808302，p=0.445631，N=214，within R2=0.047614；
+- Model C `citation_ln`：研发强度系数 1.069395，SE 1.054496，p=0.316772，N=213，within R2=0.050839。
+
+分析 Notebook：
+
+[`notebooks/09_descriptive_analysis.ipynb`](notebooks/09_descriptive_analysis.ipynb)
+
+Stata 管线：
+
+[`stata/06_first_stage_analysis.do`](stata/06_first_stage_analysis.do)
+
+所有结果保存在 Git ignored 的 `results/first_stage/`。这些模型只有研发强度和财务控制变量，没有政策连续性变量，因此仅用于验证变量与面板回归管线，不构成政策因果结论。
+
 ### 2026-09-16：原始财务数据审计
 
 已完成第一阶段科研数据工程训练：
