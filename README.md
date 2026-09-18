@@ -185,6 +185,36 @@ Notebook、测试与 Stata 验证：
 
 下一阶段进入描述统计、相关性和第一版固定效应 baseline diagnostic。
 
+### 第二章 2.2：省级政府工作报告语料库
+
+已建立第一版省级年度政府工作报告来源清单，覆盖第一章最终研究面板中的 7 个省级地区、2019—2025 年共 49 个 province-year 单元。清单记录来源 URL、发布时间、来源域名、原始文件相对路径、HTTP 状态、SHA-256、字节数、下载状态和复核备注。
+
+已验证：
+
+- 49/49 个 province-year 单元存在且唯一；
+- 49/49 个原始文件下载成功，原始正文保存于 Git ignored 的 `data/raw/policy_reports/`；
+- SHA-256 与字节数逐文件一致；
+- 下载器不会把 HTTP 错误、反爬验证页或重定向异常标记为成功；
+- 原始文件不进入 Git，仓库只跟踪来源清单、下载器、审计逻辑和测试。
+
+来源清单与下载器：
+
+[`metadata/policy_source_manifest.csv`](metadata/policy_source_manifest.csv)
+
+[`src/policy_source_manifest.py`](src/policy_source_manifest.py)
+
+[`src/fetch_policy_reports.py`](src/fetch_policy_reports.py)
+
+审计 Notebook 与测试：
+
+[`notebooks/10_policy_source_audit.ipynb`](notebooks/10_policy_source_audit.ipynb)
+
+[`tests/test_policy_source_manifest.py`](tests/test_policy_source_manifest.py)
+
+[`tests/test_policy_fetch.py`](tests/test_policy_fetch.py)
+
+本节不把来源等级不一致的转载默认为省政府一级来源；相关行保留了来源等级待人工复核备注，后续文本清洗和指标构造应继续沿用该 provenance。
+
 ### 2026-09-18：描述统计与第一版基准诊断
 
 已完成第一阶段分析管线：
