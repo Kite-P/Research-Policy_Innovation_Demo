@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import time
+from argparse import ArgumentParser
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,6 +16,7 @@ def fetch_manifest(
     manifest_path: str | Path,
     project_root: str | Path = ".",
     delay_seconds: float = 1.0,
+    force_policy_ids: set[str] | None = None,
 ) -> None:
     root = Path(project_root)
     path = root / manifest_path
@@ -23,7 +25,11 @@ def fetch_manifest(
         rows = list(reader)
         fieldnames = reader.fieldnames or []
     for index, row in enumerate(rows):
-        if row.get("retrieval_status") == "success" and row.get("content_sha256"):
+        if (
+            row.get("retrieval_status") == "success"
+            and row.get("content_sha256")
+            and row.get("policy_id") not in (force_policy_ids or set())
+        ):
             continue
         if not row.get("raw_relpath"):
             source_path = row.get("source_url", "").lower().split("?")[0]
@@ -72,4 +78,9 @@ def fetch_manifest(
 
 
 if __name__ == "__main__":
-    fetch_manifest("metadata/policy_source_manifest.csv")
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", default="metadata/policy_source_manifest.csv")
+    parser.add_argument("--project-root", default=".")
+    parser.add_argument("--force-policy-id", action="append", default=[])
+    args = parser.parse_args()
+    fetch_manifest(args.manifest, args.project_root, force_policy_ids=set(args.force_policy_id))

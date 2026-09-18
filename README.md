@@ -215,6 +215,20 @@ Notebook、测试与 Stata 验证：
 
 本节不把来源等级不一致的转载默认为省政府一级来源；相关行保留了来源等级待人工复核备注，后续文本清洗和指标构造应继续沿用该 provenance。
 
+### 第二章 2.3：政策文本清洗与产业文本提取
+
+已完成省级政府工作报告的可复现文本清洗管线：严格处理 HTML/PDF 解码、Unicode 规范化、脚本与导航噪声删除、正文容器识别、段落恢复和底部模板文本；产业文本只保留包含核心产业关键词的段落，语境关键词仅用于诊断统计。
+
+最终输出 `data/processed/policy_reports_clean.parquet`，覆盖 49 个 province-year 单元、18 个字段。独立验收结果为 49/49 条正文非空、49/49 条产业文本非空；4 条产业文本占比异常记录被保留为 `abnormal_industry_share` 质量标记，不删除正文、不伪造内容。原始下载文件保持只读，未进入 Git。
+
+清洗脚本、Notebook 与测试：
+
+[`src/policy_text_cleaning.py`](src/policy_text_cleaning.py)
+
+[`notebooks/11_policy_text_cleaning.ipynb`](notebooks/11_policy_text_cleaning.ipynb)
+
+[`tests/test_policy_text_cleaning.py`](tests/test_policy_text_cleaning.py)
+
 ### 2026-09-18：描述统计与第一版基准诊断
 
 已完成第一阶段分析管线：
