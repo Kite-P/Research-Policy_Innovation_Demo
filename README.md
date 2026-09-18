@@ -266,6 +266,10 @@ Notebook、测试与 Stata 验证：
 
 详情见 [`docs/policy_measurement_changelog.md`](docs/policy_measurement_changelog.md) 和 [`notebooks/15_policy_measurement_hardening.ipynb`](notebooks/15_policy_measurement_hardening.ipynb)。
 
+### 第三章 3.1：正式识别设计冻结
+
+已冻结 primary outcome、secondary outcomes、primary policy metric、baseline controls、Firm FE + Year FE、contemporaneous timing、province clustering 和 Webb wild cluster bootstrap primary inference。当前设计是连续变量双向固定效应面板，不是传统 DID。
+
 ### 2026-09-18：描述统计与第一版基准诊断
 
 已完成第一阶段分析管线：

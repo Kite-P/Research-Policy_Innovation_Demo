@@ -1,0 +1,4 @@
+spec_id,role,outcome,policy_variable,timing,controls,firm_fe,year_fe,cluster_level,primary_inference,notes
+BASE_PRIMARY,primary,patent_total_ln,policy_continuity_tfidf,contemporaneous,"size_ln;leverage;roa;cash_ratio;employee_ln",1,1,province,webb_wild_cluster_bootstrap,"Primary outcome and primary policy metric; raw 0-1 scale"
+BASE_SECONDARY_INV,secondary,invention_ln,policy_continuity_tfidf,contemporaneous,"size_ln;leverage;roa;cash_ratio;employee_ln",1,1,province,webb_wild_cluster_bootstrap,"Supporting outcome; not primary"
+BASE_SECONDARY_CIT,secondary,citation_ln,policy_continuity_tfidf,contemporaneous,"size_ln;leverage;roa;cash_ratio;employee_ln",1,1,province,webb_wild_cluster_bootstrap,"Supporting outcome; not primary"
