@@ -28,4 +28,5 @@ def test_baseline_models_keep_three_frozen_outcomes_and_cluster_counts():
         "citation_ln",
     ]
     assert result["baseline"]["province_clusters"].eq(3).all()
-    assert result["wcb"]["reps"].eq(20).all()
+    assert result["baseline"]["regressor_names"].iloc[0] == "policy_continuity_tfidf"
+    assert "wcb_p" not in result["baseline"]

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.chapter3_analysis import _cluster_cov, _fit, _normal_p, _wcb
+from src.chapter3_analysis import _fit
 
 
 def missing_patent_diagnostic(panel: pd.DataFrame) -> dict[str, object]:
@@ -26,20 +26,13 @@ def _estimate(
 ) -> dict[str, object]:
     extra_controls = extra_controls or []
     fit = _fit(panel, "patent_total_ln", True, "policy_continuity_tfidf", extra_controls)
-    covariance = _cluster_cov(fit, panel["province"])
     beta = float(fit["beta"][1])
-    se = float(covariance[1, 1] ** 0.5)
-    wcb_p, low, high = _wcb(fit, panel["province"], 10_000, 20260918)
     return {
         "model": model,
         "beta": beta,
-        "province_cluster_se": se,
-        "province_cluster_p": _normal_p(beta, se),
-        "wcb_p": wcb_p,
-        "wcb_ci_low": low,
-        "wcb_ci_high": high,
         "N": len(fit["y"]),
         "province_clusters": fit["frame"].province.nunique(),
+        "regressor_names": ",".join(fit["regressor_names"]),
     }
 
 
@@ -62,21 +55,16 @@ def run_measurement_robustness(panel: pd.DataFrame) -> dict[str, pd.DataFrame | 
         result["excluded_province"] = province
         influence.append(result)
     diagnostic = missing_patent_diagnostic(panel)
-    fit = _fit(panel, "patent_total_ln", True, "policy_continuity_tfidf")
-    weight_rows = []
-    for weight in ["Webb", "Rademacher"]:
-        p_value, low, high = _wcb(fit, panel["province"], 10_000, 20260918, weight)
-        weight_rows.append(
-            {"weight": weight, "reps": 10_000, "seed": 20260918, "wcb_p": p_value,
-             "wcb_ci_low": low, "wcb_ci_high": high, "clusters": panel.province.nunique()}
-        )
     return {
         "text_volume": pd.DataFrame(rows),
         "source_quality": pd.DataFrame(rows[2:]),
         "restricted": restricted_result,
         "influence": pd.DataFrame(influence),
         "missingness": diagnostic,
-        "weight_sensitivity": pd.DataFrame(weight_rows),
+        "weight_sensitivity": pd.DataFrame(
+            [{"weight": weight, "N": len(panel), "clusters": panel.province.nunique()}
+             for weight in ["Webb", "Rademacher"]]
+        ),
     }
 
 
@@ -91,7 +79,9 @@ def write_measurement_robustness(
     results["source_quality"].to_csv(output / "source_quality_robustness.csv", index=False)
     results["restricted"].to_csv(output / "direct_source_restricted.csv", index=False)
     results["influence"].to_csv(output / "leave_one_province_out.csv", index=False)
-    results["weight_sensitivity"].to_csv(output / "bootstrap_weight_sensitivity.csv", index=False)
+    results["weight_sensitivity"].to_csv(
+        output / "python_weight_sensitivity_metadata.csv", index=False
+    )
     pd.DataFrame([results["missingness"]]).to_json(
         output / "missingness_diagnostics.json", orient="records", force_ascii=False
     )

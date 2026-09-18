@@ -9,15 +9,17 @@ import numpy as np
 import pandas as pd
 
 CONTROLS = ["size_ln", "leverage", "roa", "cash_ratio", "employee_ln"]
+WEBB_SUPPORT = np.array(
+    [-np.sqrt(1.5), -1.0, -np.sqrt(0.5), np.sqrt(0.5), 1.0, np.sqrt(1.5)]
+)
 
 
 def _design(
     frame: pd.DataFrame,
     outcome: str,
-    policy: str = "policy_continuity_tfidf",
-    extra_controls: list[str] | None = None,
+    regressors: list[str],
 ) -> tuple[np.ndarray, np.ndarray, list[int]]:
-    columns = [policy, *CONTROLS, *(extra_controls or [])]
+    columns = list(regressors)
     numeric = frame[["stock_code", "year", "province", outcome, *columns]].dropna().copy()
     x = numeric[columns].to_numpy(float)
     firm = pd.get_dummies(numeric["stock_code"], drop_first=True, dtype=float).to_numpy()
@@ -33,10 +35,11 @@ def _fit(
     policy: str = "policy_continuity_tfidf",
     extra_controls: list[str] | None = None,
 ) -> dict[str, object]:
-    extra_controls = extra_controls or []
-    design, y, indices = _design(frame, outcome, policy, extra_controls)
-    if not controls:
-        design = design[:, [0, 1, *range(1 + len(CONTROLS) + len(extra_controls), design.shape[1])]]
+    regressors = [policy]
+    if controls:
+        regressors.extend(CONTROLS)
+    regressors.extend(extra_controls or [])
+    design, y, indices = _design(frame, outcome, regressors)
     beta, _, _, _ = np.linalg.lstsq(design, y, rcond=None)
     residual = y - design @ beta
     bread = np.linalg.pinv(design.T @ design)
@@ -50,6 +53,7 @@ def _fit(
         "leverage": leverage,
         "indices": indices,
         "frame": frame.loc[indices].copy(),
+        "regressor_names": regressors,
     }
 
 
@@ -70,9 +74,10 @@ def _cluster_cov(fit: dict[str, object], cluster: pd.Series, hc2: bool = False) 
     return fit["bread"] @ meat @ fit["bread"] * correction
 
 
-def _wcb(
+def _legacy_wcb_compatibility_only(
     fit: dict[str, object], cluster: pd.Series, reps: int, seed: int, weight: str = "Webb"
 ) -> tuple[float, float, float]:
+    """Legacy diagnostic only; never use for reported inference."""
     x, y = fit["design"], fit["y"]
     restricted = x[:, [i for i in range(x.shape[1]) if i != 1]]
     restricted_beta, _, _, _ = np.linalg.lstsq(restricted, y, rcond=None)
@@ -81,13 +86,7 @@ def _wcb(
     inverse = fit["bread"] @ x.T
     clusters = cluster.loc[fit["indices"]].to_numpy()
     unique = pd.unique(clusters)
-    weights = (
-        np.array([-1.0, 1.0])
-        if weight.lower() == "rademacher"
-        else np.array(
-            [-np.sqrt(1.5), -np.sqrt(0.5), -np.sqrt(0.5), np.sqrt(0.5), np.sqrt(0.5), np.sqrt(1.5)]
-        )
-    )
+    weights = np.array([-1.0, 1.0]) if weight.lower() == "rademacher" else WEBB_SUPPORT
     rng = np.random.default_rng(seed)
     draws = np.empty(reps)
     for iteration in range(reps):
@@ -116,20 +115,12 @@ def run_baseline_models(
         ("BASE_SECONDARY_INV", "invention_ln", True),
         ("BASE_SECONDARY_CIT", "citation_ln", True),
     ]
-    rows, wcb_rows = [], []
+    rows = []
     for model, outcome, controls in models:
         fit = _fit(panel, outcome, controls)
         frame = fit["frame"]
-        province_cluster = _cluster_cov(fit, panel["province"])
-        hc2_cluster = _cluster_cov(fit, panel["province"], hc2=True)
-        firm_cluster = _cluster_cov(fit, panel["stock_code"])
         beta = float(fit["beta"][1])
         n, firms, provinces = len(frame), frame.stock_code.nunique(), frame.province.nunique()
-        se = float(np.sqrt(province_cluster[1, 1]))
-        hc2_se = float(np.sqrt(hc2_cluster[1, 1]))
-        firm_se = float(np.sqrt(firm_cluster[1, 1]))
-        wcb_p, wcb_low, wcb_high = _wcb(fit, panel["province"], reps, seed)
-        within_r2 = 1 - np.sum(fit["residual"] ** 2) / np.sum((fit["y"] - fit["y"].mean()) ** 2)
         rows.append(
             {
                 "model": model,
@@ -138,36 +129,10 @@ def run_baseline_models(
                 "N": n,
                 "firms": firms,
                 "province_clusters": provinces,
-                "within_r2": within_r2,
-                "province_cluster_se": se,
-                "province_cluster_p": _normal_p(beta, se),
-                "province_cluster_ci_low": beta - 1.96 * se,
-                "province_cluster_ci_high": beta + 1.96 * se,
-                "hc2_se": hc2_se,
-                "hc2_p": _normal_p(beta, hc2_se),
-                "hc2_ci_low": beta - 1.96 * hc2_se,
-                "hc2_ci_high": beta + 1.96 * hc2_se,
-                "wcb_p": wcb_p,
-                "wcb_ci_low": wcb_low,
-                "wcb_ci_high": wcb_high,
-                "firm_cluster_se": firm_se,
-                "firm_cluster_p": _normal_p(beta, firm_se),
+                "regressor_names": ",".join(fit["regressor_names"]),
             }
         )
-        wcb_rows.append(
-            {
-                "model": model,
-                "outcome": outcome,
-                "weight": "Webb",
-                "reps": reps,
-                "seed": seed,
-                "clusters": provinces,
-                "wcb_p": wcb_p,
-                "wcb_ci_low": wcb_low,
-                "wcb_ci_high": wcb_high,
-            }
-        )
-    return {"baseline": pd.DataFrame(rows), "wcb": pd.DataFrame(wcb_rows)}
+    return {"baseline": pd.DataFrame(rows)}
 
 
 def write_baseline_results(
@@ -177,7 +142,5 @@ def write_baseline_results(
     results = run_baseline_models(panel, reps=reps)
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    results["baseline"].to_csv(output / "baseline_inference.csv", index=False)
-    results["baseline"].to_csv(output / "baseline_models.csv", index=False)
-    results["wcb"].to_csv(output / "baseline_wildbootstrap.csv", index=False)
+    results["baseline"].to_csv(output / "python_baseline_point_estimates.csv", index=False)
     return results

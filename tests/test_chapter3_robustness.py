@@ -38,8 +38,10 @@ def test_robustness_reports_fixed_metric_families():
         }
     )
     result = run_robustness(panel, reps=10)
-    assert set(result.loc[result["model"] != "lagged_primary", "model"]) == {
-        "expanding",
-        "full_report",
-        "theme",
-    }
+    assert set(result.model) == {"lagged_primary", "expanding", "full_report", "theme"}
+    assert result.loc[result.model.eq("expanding"), "outcome"].tolist() == [
+        "patent_total_ln",
+        "invention_ln",
+        "citation_ln",
+    ]
+    assert "wcb_p" not in result

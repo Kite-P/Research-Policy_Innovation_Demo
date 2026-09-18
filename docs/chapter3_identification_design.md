@@ -37,3 +37,7 @@ Primary inference 冻结为省级 Webb wild cluster bootstrap：two-sided、10,0
 `patent_record_present=0` 的专利结果保持 missing，不填 0。所有企业回归前预先执行 lagged policy、expanding-window policy、full-report metric、theme metric、pair-level text-volume controls、source-quality control、direct-source restricted sample、leave-one-province-out 和 bootstrap weight sensitivity。不得因显著性、方向或置信区间调整 primary outcome、primary metric、样本或 bootstrap 权重。
 
 完整冻结规格见 [`metadata/chapter3_model_specifications.csv`](../metadata/chapter3_model_specifications.csv)。本节不读取正式政策系数结果。
+
+## 3.6 execution correction note
+
+3.6 仅修复实现，不改变上述冻结 specification。已修正 Python 的 province-year lag 构造、Model 0 controls 元数据和旧兼容推断的权威等级；三份 Stata 脚本均补充 `i.year`、数据结构前置验证、Stata HC2 `dfadjust` 和 Stata 18 `wildbootstrap` 结果提取。当前正式结果以实际 Stata/MP 18 输出为准，Python 仅用于 beta/N cross-check。

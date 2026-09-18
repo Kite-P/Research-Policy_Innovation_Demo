@@ -272,11 +272,11 @@ Notebook、测试与 Stata 验证：
 
 ### 第三章 3.2：基准模型
 
-已生成 Model 0、primary baseline、`invention_ln` 和 `citation_ln` 基准结果，输出位于 Git ignored 的 `results/chapter3/`。primary 模型按 7 个省级 cluster 使用 Webb 10,000 次 bootstrap；当前环境未发现 Stata/MP 可执行文件，因此 CSV 为冻结规格的 Python 兼容计算结果，Stata 18 `.do` 文件保留为正式复现入口。
+已生成 Model 0、primary baseline、`invention_ln` 和 `citation_ln` 基准结果；3.6 后正式结果位于 Git ignored 的 `results/chapter3/stata_baseline_inference.csv`，由实际 Stata/MP 18 运行产生。Python 只用于 point-estimate/N cross-check。
 
 ### 第三章 3.3：时序与替代指标稳健性
 
-已固定执行 lagged primary、expanding-window primary、full-report TF-IDF 和 theme continuity 四类稳健性规格，结果位于 `results/chapter3/timing_robustness.csv` 与 `metric_robustness.csv`。不因显著性选择模型，primary 规格不变。
+已固定执行 lagged primary、expanding-window primary、full-report TF-IDF 和 theme continuity 四类稳健性规格；3.6 后正式结果位于 `results/chapter3/stata_timing_robustness.csv`。不因显著性选择模型，primary 规格不变。
 
 ### 第三章 3.4：测量、来源与样本稳健性
 
@@ -285,6 +285,10 @@ Notebook、测试与 Stata 验证：
 ### 第三章 3.5：第三章总结与封存
 
 已完成第三章实证结果汇总，见 [`docs/chapter3_empirical_results.md`](docs/chapter3_empirical_results.md)。当前报告明确区分 Python 兼容计算与未执行的 Stata/MP 正式推断，不把训练面板结果写成真实企业因果结论；后续仅在真实企业数据和正式推断环境就绪后按冻结规格重跑。
+
+### 第三章 3.6：技术纠错与 Stata 权威复核
+
+已修正 province-year lag、Model 0 controls、Year FE、Python 旧 WCB/HC2/within R² 权威边界，并通过 `scripts/run_stata_chapter3.ps1 -Target all` 实际执行 Stata/MP 18。正式结果改读 `results/chapter3/stata_*.csv`；技术纠错记录见 [`docs/chapter3_technical_correction.md`](docs/chapter3_technical_correction.md)。
 
 ### 2026-09-18：描述统计与第一版基准诊断
 
