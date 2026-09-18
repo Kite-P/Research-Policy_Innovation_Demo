@@ -243,6 +243,10 @@ Notebook、测试与 Stata 验证：
 
 `province_year_policy_metrics.parquet/.dta` 为 Git ignored 处理结果。最终核验为 49 行、12 列、`province + year` 唯一，2020—2025 三类连续性各 42 个有效值，三类指标均处于 [0,1]。
 
+### 第二章 2.5：政策连续性指标有效性验证
+
+已完成独立 measurement validation，验证只使用政策文本与政策指标，不使用企业专利或企业回归结果。结果写入 Git ignored 的 `results/policy_continuity/`，完整说明见 [`docs/policy_continuity_validation.md`](docs/policy_continuity_validation.md)。覆盖、分布、地区轨迹、年度变化、固定种子案例、2—3/3—5 n-gram 稳健性、排序一致性和文本体量相关性均已输出。
+
 ### 2026-09-18：描述统计与第一版基准诊断
 
 已完成第一阶段分析管线：
