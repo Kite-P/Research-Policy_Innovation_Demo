@@ -1,6 +1,9 @@
 # Python virtual environment
 .venv/
 
+# Codex local task metadata
+.codex/
+
 # Python cache
 __pycache__/
 *.py[cod]
