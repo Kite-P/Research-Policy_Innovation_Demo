@@ -278,6 +278,10 @@ Notebook、测试与 Stata 验证：
 
 已固定执行 lagged primary、expanding-window primary、full-report TF-IDF 和 theme continuity 四类稳健性规格，结果位于 `results/chapter3/timing_robustness.csv` 与 `metric_robustness.csv`。不因显著性选择模型，primary 规格不变。
 
+### 第三章 3.4：测量、来源与样本稳健性
+
+已完成 text-volume controls、source-quality control、direct-source restricted sample、leave-one-province-out、missing-patent diagnostic 和 Webb/Rademacher sensitivity。当前 20 个专利未观测 firm-year 保持 missing，不填 0；不执行异质性或机制分析。
+
 ### 2026-09-18：描述统计与第一版基准诊断
 
 已完成第一阶段分析管线：

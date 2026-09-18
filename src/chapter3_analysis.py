@@ -12,9 +12,12 @@ CONTROLS = ["size_ln", "leverage", "roa", "cash_ratio", "employee_ln"]
 
 
 def _design(
-    frame: pd.DataFrame, outcome: str, policy: str = "policy_continuity_tfidf"
+    frame: pd.DataFrame,
+    outcome: str,
+    policy: str = "policy_continuity_tfidf",
+    extra_controls: list[str] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, list[int]]:
-    columns = [policy, *CONTROLS]
+    columns = [policy, *CONTROLS, *(extra_controls or [])]
     numeric = frame[["stock_code", "year", "province", outcome, *columns]].dropna().copy()
     x = numeric[columns].to_numpy(float)
     firm = pd.get_dummies(numeric["stock_code"], drop_first=True, dtype=float).to_numpy()
@@ -28,10 +31,12 @@ def _fit(
     outcome: str,
     controls: bool = True,
     policy: str = "policy_continuity_tfidf",
+    extra_controls: list[str] | None = None,
 ) -> dict[str, object]:
-    design, y, indices = _design(frame, outcome, policy)
+    extra_controls = extra_controls or []
+    design, y, indices = _design(frame, outcome, policy, extra_controls)
     if not controls:
-        design = design[:, [0, 1, *range(1 + len(CONTROLS), design.shape[1])]]
+        design = design[:, [0, 1, *range(1 + len(CONTROLS) + len(extra_controls), design.shape[1])]]
     beta, _, _, _ = np.linalg.lstsq(design, y, rcond=None)
     residual = y - design @ beta
     bread = np.linalg.pinv(design.T @ design)
@@ -66,7 +71,7 @@ def _cluster_cov(fit: dict[str, object], cluster: pd.Series, hc2: bool = False) 
 
 
 def _wcb(
-    fit: dict[str, object], cluster: pd.Series, reps: int, seed: int
+    fit: dict[str, object], cluster: pd.Series, reps: int, seed: int, weight: str = "Webb"
 ) -> tuple[float, float, float]:
     x, y = fit["design"], fit["y"]
     restricted = x[:, [i for i in range(x.shape[1]) if i != 1]]
@@ -76,8 +81,12 @@ def _wcb(
     inverse = fit["bread"] @ x.T
     clusters = cluster.loc[fit["indices"]].to_numpy()
     unique = pd.unique(clusters)
-    weights = np.array(
-        [-np.sqrt(1.5), -np.sqrt(0.5), -np.sqrt(0.5), np.sqrt(0.5), np.sqrt(0.5), np.sqrt(1.5)]
+    weights = (
+        np.array([-1.0, 1.0])
+        if weight.lower() == "rademacher"
+        else np.array(
+            [-np.sqrt(1.5), -np.sqrt(0.5), -np.sqrt(0.5), np.sqrt(0.5), np.sqrt(0.5), np.sqrt(1.5)]
+        )
     )
     rng = np.random.default_rng(seed)
     draws = np.empty(reps)
