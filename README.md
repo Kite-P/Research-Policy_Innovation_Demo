@@ -274,6 +274,10 @@ Notebook、测试与 Stata 验证：
 
 已生成 Model 0、primary baseline、`invention_ln` 和 `citation_ln` 基准结果，输出位于 Git ignored 的 `results/chapter3/`。primary 模型按 7 个省级 cluster 使用 Webb 10,000 次 bootstrap；当前环境未发现 Stata/MP 可执行文件，因此 CSV 为冻结规格的 Python 兼容计算结果，Stata 18 `.do` 文件保留为正式复现入口。
 
+### 第三章 3.3：时序与替代指标稳健性
+
+已固定执行 lagged primary、expanding-window primary、full-report TF-IDF 和 theme continuity 四类稳健性规格，结果位于 `results/chapter3/timing_robustness.csv` 与 `metric_robustness.csv`。不因显著性选择模型，primary 规格不变。
+
 ### 2026-09-18：描述统计与第一版基准诊断
 
 已完成第一阶段分析管线：

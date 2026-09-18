@@ -11,8 +11,10 @@ import pandas as pd
 CONTROLS = ["size_ln", "leverage", "roa", "cash_ratio", "employee_ln"]
 
 
-def _design(frame: pd.DataFrame, outcome: str) -> tuple[np.ndarray, np.ndarray, list[int]]:
-    columns = ["policy_continuity_tfidf", *CONTROLS]
+def _design(
+    frame: pd.DataFrame, outcome: str, policy: str = "policy_continuity_tfidf"
+) -> tuple[np.ndarray, np.ndarray, list[int]]:
+    columns = [policy, *CONTROLS]
     numeric = frame[["stock_code", "year", "province", outcome, *columns]].dropna().copy()
     x = numeric[columns].to_numpy(float)
     firm = pd.get_dummies(numeric["stock_code"], drop_first=True, dtype=float).to_numpy()
@@ -21,8 +23,13 @@ def _design(frame: pd.DataFrame, outcome: str) -> tuple[np.ndarray, np.ndarray, 
     return design, numeric[outcome].to_numpy(float), numeric.index.tolist()
 
 
-def _fit(frame: pd.DataFrame, outcome: str, controls: bool = True) -> dict[str, object]:
-    design, y, indices = _design(frame, outcome)
+def _fit(
+    frame: pd.DataFrame,
+    outcome: str,
+    controls: bool = True,
+    policy: str = "policy_continuity_tfidf",
+) -> dict[str, object]:
+    design, y, indices = _design(frame, outcome, policy)
     if not controls:
         design = design[:, [0, 1, *range(1 + len(CONTROLS), design.shape[1])]]
     beta, _, _, _ = np.linalg.lstsq(design, y, rcond=None)
