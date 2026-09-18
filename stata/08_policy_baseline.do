@@ -4,9 +4,9 @@ set more off
 
 capture mkdir "results"
 capture mkdir "results/chapter3"
-capture mkdir "results/stata"
+capture mkdir "logs"
 capture log close _all
-log using "results/stata/08_policy_baseline.log", text replace
+log using "logs/08_policy_baseline.log", text replace
 
 use "data/processed/research_panel_policy.dta", clear
 isid stock_code year

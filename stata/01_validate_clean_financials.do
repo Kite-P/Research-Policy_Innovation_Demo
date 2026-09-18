@@ -3,9 +3,9 @@ clear all
 set more off
 
 capture mkdir "results"
-capture mkdir "results/stata"
+capture mkdir "logs"
 
-log using "results/stata/01_validate_clean_financials.log", text replace
+log using "logs/01_validate_clean_financials.log", text replace
 
 display "========================================"
 display "Processed financial panel validation"

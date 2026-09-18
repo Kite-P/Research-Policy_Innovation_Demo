@@ -3,8 +3,8 @@ clear all
 set more off
 
 capture mkdir "results"
-capture mkdir "results/stata"
-log using "results/stata/04_validate_research_panel.log", text replace
+capture mkdir "logs"
+log using "logs/04_validate_research_panel.log", text replace
 
 use "data/processed/research_panel_base.dta", clear
 

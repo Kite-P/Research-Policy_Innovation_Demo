@@ -4,8 +4,8 @@ set more off
 
 capture mkdir "results"
 capture mkdir "results/first_stage"
-capture mkdir "results/stata"
-log using "results/stata/06_first_stage_analysis.log", text replace
+capture mkdir "logs"
+log using "logs/06_first_stage_analysis.log", text replace
 
 use "data/processed/research_panel_variables.dta", clear
 egen firm_id = group(stock_code)

@@ -253,7 +253,7 @@ stata/06_first_stage_analysis.do
 ```text
 data/processed/
 results/first_stage/
-results/stata/
+logs/
 ```
 
 ## 十二、限制与下一阶段入口

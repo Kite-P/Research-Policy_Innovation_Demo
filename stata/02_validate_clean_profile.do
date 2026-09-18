@@ -3,9 +3,9 @@ clear all
 set more off
 
 capture mkdir "results"
-capture mkdir "results/stata"
+capture mkdir "logs"
 
-log using "results/stata/02_validate_clean_profile.log", text replace
+log using "logs/02_validate_clean_profile.log", text replace
 
 display "========================================"
 display "Processed firm profile validation"

@@ -3,8 +3,8 @@ clear all
 set more off
 
 capture mkdir "results"
-capture mkdir "results/stata"
-log using "results/stata/03_validate_clean_patents.log", text replace
+capture mkdir "logs"
+log using "logs/03_validate_clean_patents.log", text replace
 
 use "data/processed/patents_clean.dta", clear
 describe

@@ -33,7 +33,11 @@ foreach ($number in $targets) {
     if ($process.ExitCode -ne 0) {
         throw "Stata target $number returned exit code $($process.ExitCode)."
     }
-    $log = "results/stata/$number" + $(switch ($number) {
+    $autoLog = [System.IO.Path]::ChangeExtension([System.IO.Path]::GetFileName($doFile), ".log")
+    if (Test-Path -LiteralPath $autoLog) {
+        Move-Item -LiteralPath $autoLog -Destination ("logs/" + $autoLog.Replace(".log", ".batch.log")) -Force
+    }
+    $log = "logs/$number" + $(switch ($number) {
         "08" { "_policy_baseline.log" }
         "09" { "_policy_timing_robustness.log" }
         "10" { "_policy_measurement_robustness.log" }
