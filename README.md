@@ -74,6 +74,34 @@ Stata 验证：
 
 下一阶段进入专利数据审计和清洗。
 
+### 2026-09-18：专利数据清洗
+
+已完成模拟专利数据的独立审计、正式清洗和 processed 数据验证：
+
+- 审计原始 225 行、40 家公司和 220 个唯一 firm-year；
+- 识别 5 个重复 firm-year 组，其中 4 组完全重复、1 组为引用数冲突；
+- 标准化股票代码为 6 位字符串，保留三个专利字段的真实缺失；
+- 对有证据支持的极端引用值设为 missing，并未删除整个 firm-year 或填零；
+- 输出并验证 Parquet 与 Stata 数据版本，最终保留 220 行唯一 firm-year；
+- 相对于 240 个财务 firm-year，20 个 firm-year 在专利表中未观测到记录，未将其解释为零专利；
+- 完成 Stata/MP 实际加载和主键、年份、非负性验证。
+
+审计过程：
+
+[`notebooks/05_patent_audit.ipynb`](notebooks/05_patent_audit.ipynb)
+
+正式清洗：
+
+[`notebooks/06_patent_cleaning.ipynb`](notebooks/06_patent_cleaning.ipynb)
+
+可复用清洗逻辑与测试：
+
+[`src/patent_cleaning.py`](src/patent_cleaning.py)
+
+Stata 验证：
+
+[`stata/03_validate_clean_patents.do`](stata/03_validate_clean_patents.do)
+
 ### 2026-09-17：财务面板正式清洗
 
 已完成模拟财务面板第一轮正式清洗：
@@ -98,7 +126,7 @@ Stata 数据验证：
 
 [`stata/01_validate_clean_financials.do`](stata/01_validate_clean_financials.do)
 
-下一阶段进入公司基本信息与专利数据的清洗和匹配。
+下一阶段进入统一研究面板构建。
 
 ### 2026-09-16：原始财务数据审计
 
