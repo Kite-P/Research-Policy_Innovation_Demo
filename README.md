@@ -282,6 +282,10 @@ Notebook、测试与 Stata 验证：
 
 已完成 text-volume controls、source-quality control、direct-source restricted sample、leave-one-province-out、missing-patent diagnostic 和 Webb/Rademacher sensitivity。当前 20 个专利未观测 firm-year 保持 missing，不填 0；不执行异质性或机制分析。
 
+### 第三章 3.5：第三章总结与封存
+
+已完成第三章实证结果汇总，见 [`docs/chapter3_empirical_results.md`](docs/chapter3_empirical_results.md)。当前报告明确区分 Python 兼容计算与未执行的 Stata/MP 正式推断，不把训练面板结果写成真实企业因果结论；后续仅在真实企业数据和正式推断环境就绪后按冻结规格重跑。
+
 ### 2026-09-18：描述统计与第一版基准诊断
 
 已完成第一阶段分析管线：
