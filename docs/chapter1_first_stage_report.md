@@ -234,7 +234,7 @@ stata/06_first_stage_analysis.do
 - `git status --short` 无输出；
 - staged 内容未包含 `data/`、`results/`、`.parquet`、`.dta` 或 `.log`；
 - 本地绝对路径扫描无匹配；
-- Stata License、Serial Number、Authorization Code 等敏感信息扫描无匹配。
+- Stata 授权信息等敏感内容扫描无匹配。
 
 ## 十一、最终文件索引
 
