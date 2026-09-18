@@ -251,9 +251,11 @@ Notebook、测试与 Stata 验证：
 
 已将 2.4 的 province-year 指标按 `province + year` 与第一章 `research_panel_variables.parquet` 做 many-to-one 左连接。最终数据库保持 240 个 firm-year、40 家企业、2020—2025 六个年份和唯一 `stock_code + year`；240/240 个 firm-year 匹配成功，`policy_metric_present` 由 merge provenance 构造。未运行第三章政策连续性与企业创新回归。
 
-[`src/merge_policy_panel.py`](src/merge_policy_panel.py)  
-[`notebooks/14_policy_panel_merge.ipynb`](notebooks/14_policy_panel_merge.ipynb)  
-[`stata/07_validate_policy_panel.do`](stata/07_validate_policy_panel.do)  
+[`src/merge_policy_panel.py`](src/merge_policy_panel.py)
+
+[`notebooks/14_policy_panel_merge.ipynb`](notebooks/14_policy_panel_merge.ipynb)
+
+[`stata/07_validate_policy_panel.do`](stata/07_validate_policy_panel.do)
 [`docs/chapter2_policy_continuity_report.md`](docs/chapter2_policy_continuity_report.md)
 
 第二章完成后，下一阶段入口为正式政策连续性实证识别；本仓库当前仍不把文本连续性 proxy 表述为政策稳定性的真实值。
