@@ -247,6 +247,17 @@ Notebook、测试与 Stata 验证：
 
 已完成独立 measurement validation，验证只使用政策文本与政策指标，不使用企业专利或企业回归结果。结果写入 Git ignored 的 `results/policy_continuity/`，完整说明见 [`docs/policy_continuity_validation.md`](docs/policy_continuity_validation.md)。覆盖、分布、地区轨迹、年度变化、固定种子案例、2—3/3—5 n-gram 稳健性、排序一致性和文本体量相关性均已输出。
 
+### 第二章 2.6：政策指标与企业面板匹配及第二章封存
+
+已将 2.4 的 province-year 指标按 `province + year` 与第一章 `research_panel_variables.parquet` 做 many-to-one 左连接。最终数据库保持 240 个 firm-year、40 家企业、2020—2025 六个年份和唯一 `stock_code + year`；240/240 个 firm-year 匹配成功，`policy_metric_present` 由 merge provenance 构造。未运行第三章政策连续性与企业创新回归。
+
+[`src/merge_policy_panel.py`](src/merge_policy_panel.py)  
+[`notebooks/14_policy_panel_merge.ipynb`](notebooks/14_policy_panel_merge.ipynb)  
+[`stata/07_validate_policy_panel.do`](stata/07_validate_policy_panel.do)  
+[`docs/chapter2_policy_continuity_report.md`](docs/chapter2_policy_continuity_report.md)
+
+第二章完成后，下一阶段入口为正式政策连续性实证识别；本仓库当前仍不把文本连续性 proxy 表述为政策稳定性的真实值。
+
 ### 2026-09-18：描述统计与第一版基准诊断
 
 已完成第一阶段分析管线：
