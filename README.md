@@ -153,6 +153,36 @@ Notebook：
 
 [`stata/04_validate_research_panel.do`](stata/04_validate_research_panel.do)
 
+下一阶段进入第一阶段研究变量构造。
+
+### 2026-09-18：第一阶段研究变量
+
+已在统一研究面板上构造第一批后续实证变量：
+
+- 财务变量：`size_ln`、`leverage`、`roa`、`rd_intensity`、`cash_ratio`、`employee_ln`；
+- 公司特征变量：`firm_age`；
+- 创新变量：`patent_total`、`patent_total_ln`、`invention_ln`、`citation_ln`、`invention_share`、`citations_per_invention`；
+- 比率变量仅在正分母下计算，log 变量不接受非法输入，上市日期缺失不推测；
+- `patent_record_present=0` 的所有专利衍生变量均保持 missing；
+- 保持 240 行和原始 firm-year key，不做 winsorization；
+- 完成 Parquet、Stata、Notebook 和 Stata/MP 实际验证。
+
+变量构造：
+
+[`src/build_research_variables.py`](src/build_research_variables.py)
+
+变量字典：
+
+[`docs/variable_dictionary.md`](docs/variable_dictionary.md)
+
+Notebook、测试与 Stata 验证：
+
+[`notebooks/08_variable_construction.ipynb`](notebooks/08_variable_construction.ipynb)
+
+[`tests/test_research_variables.py`](tests/test_research_variables.py)
+
+[`stata/05_validate_research_variables.do`](stata/05_validate_research_variables.do)
+
 ### 2026-09-16：原始财务数据审计
 
 已完成第一阶段科研数据工程训练：
