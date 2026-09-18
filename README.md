@@ -229,6 +229,20 @@ Notebook、测试与 Stata 验证：
 
 [`tests/test_policy_text_cleaning.py`](tests/test_policy_text_cleaning.py)
 
+### 第二章 2.4：省级政策连续性指标
+
+已基于 2.3 清洗语料构造三类 province-year 指标：产业文本主指标 `policy_continuity_tfidf`、全文稳健性指标 `policy_continuity_full_tfidf` 和关键词类别份额向量的 `policy_continuity_theme`。TF-IDF 使用字符 2—4 gram、全体 49 份报告统一 vocabulary、`min_df=2`、`1+ln(count)` TF、平滑 IDF 和 L2 标准化；2019 年连续性按构造保持缺失，不以 0 或均值替代。
+
+输出：
+
+[`src/policy_continuity.py`](src/policy_continuity.py)
+
+[`notebooks/12_policy_continuity.ipynb`](notebooks/12_policy_continuity.ipynb)
+
+[`tests/test_policy_continuity.py`](tests/test_policy_continuity.py)
+
+`province_year_policy_metrics.parquet/.dta` 为 Git ignored 处理结果。最终核验为 49 行、12 列、`province + year` 唯一，2020—2025 三类连续性各 42 个有效值，三类指标均处于 [0,1]。
+
 ### 2026-09-18：描述统计与第一版基准诊断
 
 已完成第一阶段分析管线：
