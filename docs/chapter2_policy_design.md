@@ -179,7 +179,7 @@ industry_text_share = industry_text_chars / full_text_chars
 ## 9. 本章不做的工作
 
 - 不把所有产业政策文件混入第一版主语料；
-- 不依赖 OpenAI API、商业 embedding API 或付费 NLP API 构造主指标；
+- 不依赖商业 embedding 或付费 NLP 服务构造主指标；
 - 不把完整政策原文写入 Git；
 - 不运行正式政策效应主回归；
 - 不根据企业创新结果优化指标。

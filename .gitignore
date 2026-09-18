@@ -3,6 +3,11 @@
 
 # Codex local task metadata
 .codex/
+**/.codex/
+
+# Local planning / agent workflow artifacts
+superpowers/
+**/superpowers/
 
 # Python cache
 __pycache__/
