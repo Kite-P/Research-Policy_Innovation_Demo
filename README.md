@@ -260,6 +260,12 @@ Notebook、测试与 Stata 验证：
 
 第二章完成后，下一阶段入口为正式政策连续性实证识别；本仓库当前仍不把文本连续性 proxy 表述为政策稳定性的真实值。
 
+### 2.7：政策来源与连续性测量加固
+
+已补充 49 条来源的逐条 source tier、理由、验证状态和历史抓取问题字段；保留原 primary `policy_continuity_tfidf`，新增 expanding-window 指标、来源 pair 质量字段和成对文本体量控制。pre/post measurement revision 显示 primary 有效值没有变化。
+
+详情见 [`docs/policy_measurement_changelog.md`](docs/policy_measurement_changelog.md) 和 [`notebooks/15_policy_measurement_hardening.ipynb`](notebooks/15_policy_measurement_hardening.ipynb)。
+
 ### 2026-09-18：描述统计与第一版基准诊断
 
 已完成第一阶段分析管线：

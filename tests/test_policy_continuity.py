@@ -57,3 +57,38 @@ def test_metrics_are_sorted_and_first_year_missing():
     assert metrics.loc[metrics.year == 2019, "policy_continuity_tfidf"].isna().all()
     assert metrics.loc[metrics.year == 2020, "previous_year_available"].all()
     assert metrics["policy_continuity_tfidf"].dropna().between(0, 1).all()
+
+
+def test_expanding_metric_is_insensitive_to_future_text_changes():
+    rows = []
+    for province in ["甲省", "乙省"]:
+        for year in range(2019, 2026):
+            text = f"创新制造共同基础 {year}"
+            rows.append(
+                {
+                    "policy_id": f"{province}_{year}",
+                    "province": province,
+                    "report_year": year,
+                    "industry_text_clean": text,
+                    "full_text_clean": text,
+                    "full_text_chars": len(text),
+                    "industry_text_chars": len(text),
+                    "industry_text_share": 1.0,
+                    "keyword_hits_total": 2,
+                }
+            )
+    clean = pd.DataFrame(rows)
+    keywords = pd.DataFrame(
+        {
+            "term": ["创新", "制造"],
+            "category": ["technology", "manufacturing"],
+            "tier": ["core", "core"],
+        }
+    )
+    original = build_policy_metrics(clean, keywords)
+    changed = clean.copy()
+    changed.loc[changed["report_year"] == 2025, "industry_text_clean"] = "完全不同未来文本"
+    changed_metrics = build_policy_metrics(changed, keywords)
+    left = original.loc[original.year <= 2024, "policy_continuity_tfidf_expanding"]
+    right = changed_metrics.loc[changed_metrics.year <= 2024, "policy_continuity_tfidf_expanding"]
+    assert np.allclose(left.fillna(-1), right.fillna(-1))

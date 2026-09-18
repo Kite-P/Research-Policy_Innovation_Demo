@@ -27,6 +27,16 @@ def policy_frame():
             "policy_industry_text_chars": [50],
             "policy_industry_text_share": [0.5],
             "policy_keyword_hits": [10],
+            "policy_continuity_tfidf_expanding": [0.4],
+            "source_tier_current": [1],
+            "source_tier_previous": [1],
+            "source_tier_max": [1],
+            "source_tier_changed": [0],
+            "both_direct_official": [1],
+            "pair_mean_log_industry_chars": [4.0],
+            "abs_log_industry_length_change": [0.1],
+            "pair_mean_log_full_chars": [4.5],
+            "abs_log_full_length_change": [0.1],
         }
     )
 

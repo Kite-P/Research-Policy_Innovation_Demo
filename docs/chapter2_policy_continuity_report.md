@@ -56,3 +56,7 @@
 ## 9. 第三章入口
 
 下一阶段再讨论正式基准识别、标准误聚类层级、滞后结构、主回归、稳健性、异质性和机制检验。本章没有运行 `policy_continuity_tfidf → patent` 的企业结果回归。
+
+## 10. 2.7 测量加固更新
+
+2.7 对第二章进行了透明度加固，但没有改变 primary metric。新增 source tier、source pair quality、expanding-window TF-IDF 和 pair-level text-volume controls；旧版与新版 `policy_continuity_tfidf` 的 42 个有效值最大绝对差为 0。新增 expanding 指标只在每个年份可用信息内计算，作为 no-look-ahead robustness，不取代原主指标。

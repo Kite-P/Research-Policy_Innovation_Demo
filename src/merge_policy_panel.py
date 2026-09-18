@@ -15,6 +15,16 @@ POLICY_COLUMNS = [
     "policy_industry_text_chars",
     "policy_industry_text_share",
     "policy_keyword_hits",
+    "policy_continuity_tfidf_expanding",
+    "source_tier_current",
+    "source_tier_previous",
+    "source_tier_max",
+    "source_tier_changed",
+    "both_direct_official",
+    "pair_mean_log_industry_chars",
+    "abs_log_industry_length_change",
+    "pair_mean_log_full_chars",
+    "abs_log_full_length_change",
 ]
 
 
@@ -55,7 +65,10 @@ def write_policy_panel(
     Path(parquet_path).parent.mkdir(parents=True, exist_ok=True)
     Path(dta_path).parent.mkdir(parents=True, exist_ok=True)
     merged.to_parquet(parquet_path, index=False)
-    merged.to_stata(dta_path, write_index=False, version=118)
+    stata_merged = merged.rename(
+        columns={"policy_continuity_tfidf_expanding": "policy_cont_tfidf_exp"}
+    )
+    stata_merged.to_stata(dta_path, write_index=False, version=118)
     return merged
 
 

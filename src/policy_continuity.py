@@ -95,7 +95,30 @@ def _province_key(province: str) -> str:
     return PROVINCE_KEYS.get(province, province)
 
 
-def build_policy_metrics(clean: pd.DataFrame, keywords: pd.DataFrame) -> pd.DataFrame:
+def _expanding_continuity(ordered: pd.DataFrame) -> dict[int, float]:
+    values: dict[int, float] = {}
+    for year in sorted(ordered["report_year"].unique()):
+        eligible = ordered[ordered["report_year"] <= year].copy()
+        matrix, _ = tfidf_matrix(eligible["industry_text_clean"].tolist())
+        for position, row in eligible.iterrows():
+            if int(row["report_year"]) != int(year):
+                continue
+            previous = eligible.index[
+                eligible["province"].eq(row["province"])
+                & eligible["report_year"].eq(int(row["report_year"]) - 1)
+            ]
+            if len(previous) == 1:
+                current_pos = eligible.index.get_loc(position)
+                previous_pos = eligible.index.get_loc(int(previous[0]))
+                values[int(position)] = cosine_similarity(matrix[current_pos], matrix[previous_pos])
+    return values
+
+
+def build_policy_metrics(
+    clean: pd.DataFrame,
+    keywords: pd.DataFrame,
+    source_manifest: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     required = {
         "province",
         "report_year",
@@ -110,9 +133,14 @@ def build_policy_metrics(clean: pd.DataFrame, keywords: pd.DataFrame) -> pd.Data
     if missing:
         raise ValueError(f"missing clean corpus columns: {sorted(missing)}")
     ordered = clean.sort_values(["province", "report_year"]).reset_index(drop=True)
+    if source_manifest is not None:
+        source_lookup = source_manifest.set_index("policy_id")
+    else:
+        source_lookup = None
     industry_matrix, _ = tfidf_matrix(ordered["industry_text_clean"].tolist())
     full_matrix, _ = tfidf_matrix(ordered["full_text_clean"].tolist())
     theme_matrix = _theme_vectors(ordered["industry_text_clean"].tolist(), keywords)
+    expanding_values = _expanding_continuity(ordered)
     records: list[dict[str, object]] = []
     for position, row in ordered.iterrows():
         previous_position = None
@@ -145,12 +173,45 @@ def build_policy_metrics(clean: pd.DataFrame, keywords: pd.DataFrame) -> pd.Data
             pd.isna(value) for value in (industry_metric, full_metric, theme_metric)
         ):
             flags.append("empty_vector")
+        if available:
+            current_industry_log = np.log1p(float(row["industry_text_chars"]))
+            previous_row = ordered.loc[previous_position]
+            previous_industry_log = np.log1p(float(previous_row["industry_text_chars"]))
+            current_full_log = np.log1p(float(row["full_text_chars"]))
+            previous_full_log = np.log1p(float(previous_row["full_text_chars"]))
+            pair_controls = {
+                "pair_mean_log_industry_chars": (current_industry_log + previous_industry_log) / 2,
+                "abs_log_industry_length_change": abs(current_industry_log - previous_industry_log),
+                "pair_mean_log_full_chars": (current_full_log + previous_full_log) / 2,
+                "abs_log_full_length_change": abs(current_full_log - previous_full_log),
+            }
+        else:
+            pair_controls = {
+                "pair_mean_log_industry_chars": np.nan,
+                "abs_log_industry_length_change": np.nan,
+                "pair_mean_log_full_chars": np.nan,
+                "abs_log_full_length_change": np.nan,
+            }
+        if source_lookup is not None and "policy_id" in ordered.columns:
+            current_source = source_lookup.loc[row["policy_id"]]
+            previous_source = source_lookup.loc[previous_row["policy_id"]] if available else None
+            source_current = int(current_source["source_tier"])
+            source_previous = (
+                int(previous_source["source_tier"]) if previous_source is not None else np.nan
+            )
+            source_max = max(source_current, source_previous) if available else np.nan
+            source_changed = int(source_current != source_previous) if available else np.nan
+            both_direct = int(source_current <= 2 and source_previous <= 2) if available else np.nan
+        else:
+            source_current = source_previous = source_max = np.nan
+            source_changed = both_direct = np.nan
         records.append(
             {
                 "province": row["province"],
                 "province_key": _province_key(str(row["province"])),
                 "year": int(row["report_year"]),
                 "policy_continuity_tfidf": industry_metric,
+                "policy_continuity_tfidf_expanding": expanding_values.get(position, float("nan")),
                 "policy_continuity_full_tfidf": full_metric,
                 "policy_continuity_theme": theme_metric,
                 "policy_full_text_chars": int(row["full_text_chars"]),
@@ -159,6 +220,12 @@ def build_policy_metrics(clean: pd.DataFrame, keywords: pd.DataFrame) -> pd.Data
                 "policy_keyword_hits": int(row["keyword_hits_total"]),
                 "previous_year_available": available,
                 "metric_quality_flag": ";".join(flags) if flags else "ok",
+                "source_tier_current": source_current,
+                "source_tier_previous": source_previous,
+                "source_tier_max": source_max,
+                "source_tier_changed": source_changed,
+                "both_direct_official": both_direct,
+                **pair_controls,
             }
         )
     return pd.DataFrame(records).sort_values(["province", "year"]).reset_index(drop=True)
@@ -169,14 +236,19 @@ def write_policy_metrics(
     keyword_path: str | Path,
     parquet_path: str | Path,
     dta_path: str | Path,
+    manifest_path: str | Path | None = "metadata/policy_source_manifest.csv",
 ) -> pd.DataFrame:
     clean = pd.read_parquet(clean_path)
     keywords = _load_keyword_rows(keyword_path)
-    metrics = build_policy_metrics(clean, keywords)
+    manifest = pd.read_csv(manifest_path) if manifest_path else None
+    metrics = build_policy_metrics(clean, keywords, manifest)
     Path(parquet_path).parent.mkdir(parents=True, exist_ok=True)
     Path(dta_path).parent.mkdir(parents=True, exist_ok=True)
     metrics.to_parquet(parquet_path, index=False)
-    metrics.to_stata(dta_path, write_index=False, version=118)
+    stata_metrics = metrics.rename(
+        columns={"policy_continuity_tfidf_expanding": "policy_cont_tfidf_exp"}
+    )
+    stata_metrics.to_stata(dta_path, write_index=False, version=118)
     return metrics
 
 
@@ -186,5 +258,6 @@ if __name__ == "__main__":
     parser.add_argument("--keywords", default="metadata/policy_industry_keywords.csv")
     parser.add_argument("--parquet", default="data/processed/province_year_policy_metrics.parquet")
     parser.add_argument("--dta", default="data/processed/province_year_policy_metrics.dta")
+    parser.add_argument("--manifest", default="metadata/policy_source_manifest.csv")
     args = parser.parse_args()
-    write_policy_metrics(args.clean, args.keywords, args.parquet, args.dta)
+    write_policy_metrics(args.clean, args.keywords, args.parquet, args.dta, args.manifest)
