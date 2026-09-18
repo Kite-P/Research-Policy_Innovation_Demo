@@ -270,6 +270,10 @@ Notebook、测试与 Stata 验证：
 
 已冻结 primary outcome、secondary outcomes、primary policy metric、baseline controls、Firm FE + Year FE、contemporaneous timing、province clustering 和 Webb wild cluster bootstrap primary inference。当前设计是连续变量双向固定效应面板，不是传统 DID。
 
+### 第三章 3.2：基准模型
+
+已生成 Model 0、primary baseline、`invention_ln` 和 `citation_ln` 基准结果，输出位于 Git ignored 的 `results/chapter3/`。primary 模型按 7 个省级 cluster 使用 Webb 10,000 次 bootstrap；当前环境未发现 Stata/MP 可执行文件，因此 CSV 为冻结规格的 Python 兼容计算结果，Stata 18 `.do` 文件保留为正式复现入口。
+
 ### 2026-09-18：描述统计与第一版基准诊断
 
 已完成第一阶段分析管线：
