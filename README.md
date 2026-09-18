@@ -128,6 +128,31 @@ Stata 数据验证：
 
 下一阶段进入统一研究面板构建。
 
+### 2026-09-18：统一公司年度研究面板
+
+已将财务、公司基本信息和专利 processed 数据合并为统一研究面板：
+
+- 以 240 个财务 firm-year 作为左表骨架，保留 40 家公司和 2020–2025 年；
+- Profile 按 `stock_code` 做 many-to-one 合并，240/240 条财务记录成功匹配；
+- Patent 按 `stock_code + year` 做 one-to-one 左连接，最终面板仍为 240 行；
+- 从 merge provenance 构造 `patent_record_present`，其中 220 条为 1、20 条为 0；
+- 未观测专利记录的三个专利字段保持 missing，没有填充为 0；
+- 已验证 Parquet、Stata 和 Stata/MP 实际面板设定所需的 key、年份、年度观测数和覆盖关系。
+
+面板构建：
+
+[`src/build_research_panel.py`](src/build_research_panel.py)
+
+Notebook：
+
+[`notebooks/07_panel_build.ipynb`](notebooks/07_panel_build.ipynb)
+
+测试与 Stata 验证：
+
+[`tests/test_research_panel.py`](tests/test_research_panel.py)
+
+[`stata/04_validate_research_panel.do`](stata/04_validate_research_panel.do)
+
 ### 2026-09-16：原始财务数据审计
 
 已完成第一阶段科研数据工程训练：
