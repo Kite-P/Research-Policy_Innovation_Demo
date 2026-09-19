@@ -1,6 +1,11 @@
 import pandas as pd
 
-from src.free_financial_pilot import resolve_column, select_year_end_rows, to_em_symbol
+from src.free_financial_pilot import (
+    resolve_column,
+    resolve_financial_mapping,
+    select_year_end_rows,
+    to_em_symbol,
+)
 
 
 def test_to_em_symbol():
@@ -28,3 +33,19 @@ def test_resolve_column_rejects_ambiguous_matches():
         contains_candidates=("TOTAL", "ASSET"),
     )
     assert result is None
+
+
+def test_revenue_uses_total_operate_income():
+    mapping = resolve_financial_mapping(
+        pd.DataFrame(columns=["TOTAL_OPERATE_INCOME", "OPERATE_INCOME"])
+    )
+    assert mapping["revenue"] == "TOTAL_OPERATE_INCOME"
+    assert mapping["operating_income_narrow"] == "OPERATE_INCOME"
+
+
+def test_net_profit_uses_parent_netprofit():
+    mapping = resolve_financial_mapping(
+        pd.DataFrame(columns=["NETPROFIT", "PARENT_NETPROFIT"])
+    )
+    assert mapping["net_profit"] == "PARENT_NETPROFIT"
+    assert mapping["consolidated_net_profit_audit"] == "NETPROFIT"

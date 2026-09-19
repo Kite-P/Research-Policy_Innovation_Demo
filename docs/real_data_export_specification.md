@@ -4,9 +4,9 @@
 
 ## 免费来源 pilot 结果
 
-4.1F 已实际验证 AKShare 1.18.96 的交易所列表、CNINFO Profile 和东方财富公开财务报表接口。Profile pilot 在 SSE、SZSE、BSE 均返回了样本级法定公司全称和注册地址；财务 pilot 返回了资产、负债和现金，但收入与净利润存在多个候选列，不能在没有来源定义的情况下自动选取。员工历史人数和 firm-year ST 状态仍需人工数据源补充。
+4.1F-R 已实际验证 AKShare 1.18.96 的交易所列表、CNINFO Profile、东方财富公开财务报表和 F10 指标接口。Profile pilot 在 SSE、SZSE、BSE 均返回了样本级法定公司全称和注册地址；财务 pilot 在 60 个 firm-year 上返回了资产、负债、现金、`TOTAL_OPERATE_INCOME` 和 `PARENT_NETPROFIT`；F10 `STAFF_NUM` 返回了 60 个 firm-year。研发费用为 57/60，firm-year ST 状态仍需其他来源补充。
 
-因此免费接口当前只属于可行性候选，不替代正式真实数据来源。后续导出仍需保留来源数据字典、字段定义、报告口径和更新时间。
+因此免费接口已具备财务核心字段 pilot 可行性，但不替代正式全市场真实数据来源。后续导出仍需保留来源数据字典、字段定义、报告口径和更新时间。
 
 ## Profile export
 
@@ -40,7 +40,7 @@ Statement type: Consolidated financial statements
 
 Required fields: `stock_code`, `year`, `total_assets`, `total_liabilities`, `revenue`, `net_profit`, `cash`, `rd_expense`, `employees`
 
-Field definitions: 期末合并总资产、期末合并总负债、营业收入、统一定义的净利润、货币资金或统一定义的现金及现金等价物、当期研发支出/投入、期末员工人数
+Field definitions: 期末合并总资产、期末合并总负债、营业总收入（`TOTAL_OPERATE_INCOME`）、归属于母公司所有者的净利润（`PARENT_NETPROFIT`）、货币资金、研发费用（`RESEARCH_EXPENSE`）、报告期末员工人数（`STAFF_NUM`）
 
 File format: UTF-8 CSV 或 XLSX；保留原始单位和数据字典
 

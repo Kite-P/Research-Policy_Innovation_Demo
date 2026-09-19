@@ -45,31 +45,27 @@ def build_company_patent_query(company_names: list[str]) -> str:
     if not company_names:
         raise ValueError("company_names must not be empty")
     literals = ", ".join(_sql_string(normalize_company_name(name)) for name in company_names)
-    return f"""SELECT
-  query_company_name,
-  matched_assignee,
-  publication_number,
-  application_number,
-  filing_date,
-  publication_date,
-  kind_code,
-  country_code
-FROM (
-  SELECT
-    company_name AS query_company_name,
-    assignee AS matched_assignee,
-    publication_number,
-    application_number,
-    filing_date,
-    publication_date,
-    kind_code,
-    country_code
-  FROM {PATENT_TABLE}, UNNEST(assignee_harmonized) AS harmonized
-  CROSS JOIN UNNEST([{literals}]) AS company_name
-  WHERE country_code = 'CN'
-    AND filing_date BETWEEN 20220101 AND 20241231
-    AND (
-      NORMALIZE(assignee, NFKC) = company_name
-      OR NORMALIZE(harmonized.name, NFKC) = company_name
-    )
-)"""
+    return f"""SELECT DISTINCT
+  company_name AS query_company_name,
+  COALESCE(harmonized.name, raw_assignee) AS matched_assignee,
+  p.publication_number,
+  p.application_number,
+  p.filing_date,
+  p.publication_date,
+  p.kind_code,
+  p.country_code
+FROM
+  {PATENT_TABLE} AS p
+LEFT JOIN
+  UNNEST(p.assignee) AS raw_assignee
+LEFT JOIN
+  UNNEST(p.assignee_harmonized) AS harmonized
+CROSS JOIN
+  UNNEST([{literals}]) AS company_name
+WHERE
+  p.country_code = 'CN'
+  AND p.filing_date BETWEEN 20220101 AND 20241231
+  AND (
+    NORMALIZE(raw_assignee, NFKC) = company_name
+    OR NORMALIZE(harmonized.name, NFKC) = company_name
+  )"""

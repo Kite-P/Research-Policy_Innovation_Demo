@@ -20,18 +20,18 @@ AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,BSE,total_liabiliti
 AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,SSE,cash,PASS,1.000,24 of 24 firm-years
 AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,SZSE,cash,PASS,1.000,24 of 24 firm-years
 AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,BSE,cash,PASS,1.000,12 of 12 firm-years
-AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SSE,revenue,AMBIGUOUS,0.000,TOTAL_OPERATE_INCOME and OPERATE_INCOME both present
-AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SZSE,revenue,AMBIGUOUS,0.000,TOTAL_OPERATE_INCOME and OPERATE_INCOME both present
-AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,BSE,revenue,AMBIGUOUS,0.000,Multiple revenue candidates prevent automatic selection
-AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SSE,net_profit,AMBIGUOUS,0.000,NETPROFIT and PARENT_NETPROFIT both present
-AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SZSE,net_profit,AMBIGUOUS,0.000,NETPROFIT and PARENT_NETPROFIT both present
-AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,BSE,net_profit,AMBIGUOUS,0.000,NETPROFIT and PARENT_NETPROFIT both present
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SSE,revenue,PASS,1.000,TOTAL_OPERATE_INCOME selected as 营业总收入; OPERATE_INCOME retained for audit
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SZSE,revenue,PASS,1.000,TOTAL_OPERATE_INCOME selected as 营业总收入; OPERATE_INCOME retained for audit
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,BSE,revenue,PASS,1.000,TOTAL_OPERATE_INCOME selected as 营业总收入; OPERATE_INCOME retained for audit
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SSE,net_profit,PASS,1.000,PARENT_NETPROFIT selected as 归属于母公司所有者的净利润; NETPROFIT retained for audit
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SZSE,net_profit,PASS,1.000,PARENT_NETPROFIT selected as 归属于母公司所有者的净利润; NETPROFIT retained for audit
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,BSE,net_profit,PASS,1.000,PARENT_NETPROFIT selected as 归属于母公司所有者的净利润; NETPROFIT retained for audit
 AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SSE,rd_expense,PASS,1.000,RESEARCH_EXPENSE present for 24 of 24 firm-years
 AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SZSE,rd_expense,PARTIAL,0.875,RESEARCH_EXPENSE present for 21 of 24 firm-years
 AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,BSE,rd_expense,PASS,1.000,RESEARCH_EXPENSE present for 12 of 12 firm-years
-AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,SSE,employees,UNAVAILABLE_FREE_SOURCE,0.000,No reliable historical employee field identified
-AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,SZSE,employees,UNAVAILABLE_FREE_SOURCE,0.000,No reliable historical employee field identified
-AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,BSE,employees,UNAVAILABLE_FREE_SOURCE,0.000,No reliable historical employee field identified
+AKShare/EastMoney,financial,stock_financial_analysis_indicator_em,SSE,employees,PASS,1.000,STAFF_NUM returned for 24 of 24 firm-years; all 8 firms varied across three years
+AKShare/EastMoney,financial,stock_financial_analysis_indicator_em,SZSE,employees,PASS,1.000,STAFF_NUM returned for 24 of 24 firm-years; all 8 firms varied across three years
+AKShare/EastMoney,financial,stock_financial_analysis_indicator_em,BSE,employees,PASS,1.000,STAFF_NUM returned for 12 of 12 firm-years; all 4 firms varied across three years
 Google Patents BigQuery,patent,publications,SSE,filing_date,GOOGLE_AUTH_REQUIRED,,bq and gcloud are not installed
 Google Patents BigQuery,patent,publications,SZSE,filing_date,GOOGLE_AUTH_REQUIRED,,bq and gcloud are not installed
 Google Patents BigQuery,patent,publications,BSE,filing_date,GOOGLE_AUTH_REQUIRED,,No freshness or entity match query executed

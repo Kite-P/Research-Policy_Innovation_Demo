@@ -61,16 +61,18 @@ Baseline 使用合并财务报表，禁止在企业之间混用母公司与合�
 
 ## 当前状态
 
-4.1F 免费来源 pilot 已完成，当前状态为 `FREE_STACK_NOT_READY`。
+4.1F-R 免费来源 pilot 已完成，当前状态为 `FREE_FINANCIAL_READY_PATENT_AUTH_REQUIRED`。
 
-AKShare/CNINFO 在 20 家 pilot 上取得了 Profile、法定公司全称、行业、注册地址和省份；AKShare/EastMoney 公开财务接口取得了资产、负债和现金，但收入与净利润同时存在多个候选列，按照字段审计规则不能自动选择；历史员工人数和 firm-year ST 状态未获得。Google Patents BigQuery 由于当前环境缺少免费身份验证工具，未执行 schema、freshness 或企业名称匹配查询。
+AKShare/CNINFO 在 20 家 pilot 上取得了 Profile、法定公司全称、行业、注册地址和省份；AKShare/EastMoney 公开财务接口取得了资产、负债、现金、收入和净利润，字段分别固定为 `TOTAL_ASSETS`、`TOTAL_LIABILITIES`、`MONETARYFUNDS`/`MONETARY_FUNDS`、`TOTAL_OPERATE_INCOME` 和 `PARENT_NETPROFIT`。EastMoney F10 指标接口取得了 2022—2024 年员工人数 60/60，20 家企业均有三年变化。研发费用 `RESEARCH_EXPENSE` 为 57/60；历史注册地址和 firm-year ST 状态仍未获得。
+
+Google Patents BigQuery 由于当前环境缺少免费身份验证工具，未执行 schema、freshness 或企业名称匹配查询，专利状态保持 `GOOGLE_AUTH_REQUIRED`。
 
 因此：
 
 - 不修改第三章冻结变量；
-- 不把 BSE 从正式总体中静默删除，保留 `PENDING_SCOPE_REVISION_BSE`；
-- 对员工控制保留 `PENDING_DESIGN_REVISION_EMPLOYEE`；
-- 不把免费 pilot 结果当作正式真实研究数据；
+- 不把 BSE 从正式总体中静默删除，正式下载前继续做全市场覆盖审计；
+- 员工控制已有免费 pilot 字段，不再标记为不可得，但正式数据仍需统一口径审计；
+- 不把 pilot 结果当作正式全市场真实数据；
 - 不进入 4.2F、全市场下载或真实回归。
 
 完整结果见 [`free_source_feasibility_report.md`](free_source_feasibility_report.md)。

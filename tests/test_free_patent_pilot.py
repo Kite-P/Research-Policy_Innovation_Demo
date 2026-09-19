@@ -14,7 +14,10 @@ def test_query_builders_use_current_publications_table():
 def test_company_query_uses_exact_name_matching_and_year_filter():
     query = build_company_patent_query(["甲 乙股份有限公司"])
     assert "filing_date BETWEEN 20220101 AND 20241231" in query
-    assert "NORMALIZE(assignee" in query
+    assert "UNNEST(p.assignee)" in query
+    assert "UNNEST(p.assignee_harmonized)" in query
+    assert "NORMALIZE(raw_assignee, NFKC)" in query
+    assert "NORMALIZE(assignee, NFKC)" not in query
     assert "fuzzy" not in query.lower()
     assert "LIKE" not in query
 

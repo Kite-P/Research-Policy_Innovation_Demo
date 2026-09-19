@@ -7,10 +7,12 @@ from pathlib import Path
 import pandas as pd
 
 try:
+    from src.free_employee_pilot import run_employee_pilot
     from src.free_financial_pilot import run_financial_pilot
     from src.free_patent_pilot import build_patent_freshness_query, build_patent_schema_query
     from src.free_profile_pilot import build_pilot_universe, run_profile_pilot
 except ModuleNotFoundError:
+    from free_employee_pilot import run_employee_pilot
     from free_financial_pilot import run_financial_pilot
     from free_patent_pilot import build_patent_freshness_query, build_patent_schema_query
     from free_profile_pilot import build_pilot_universe, run_profile_pilot
@@ -52,6 +54,41 @@ def _run_financial(pilot: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     result.to_csv(result_path, index=False, encoding="utf-8-sig")
     inventory.to_csv(inventory_path, index=False, encoding="utf-8-sig")
     return result, inventory
+
+
+def _run_employee(pilot: pd.DataFrame) -> pd.DataFrame:
+    cache_path = CACHE_DIR / "employee_pilot.csv"
+    if cache_path.exists() and not os.environ.get("FREE_SOURCE_FORCE_REFRESH"):
+        return pd.read_csv(cache_path, dtype={"stock_code": str})
+    result = run_employee_pilot(pilot)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    result.to_csv(cache_path, index=False, encoding="utf-8-sig")
+    return result
+
+
+def _definition_audit(financial: pd.DataFrame) -> pd.DataFrame:
+    audit = financial[
+        [
+            "stock_code",
+            "exchange",
+            "year",
+            "revenue",
+            "operating_income_narrow",
+            "net_profit",
+            "consolidated_net_profit_audit",
+        ]
+    ].copy()
+    audit["revenue_pair_equal"] = (
+        audit["revenue"].notna()
+        & audit["operating_income_narrow"].notna()
+        & audit["revenue"].eq(audit["operating_income_narrow"])
+    )
+    audit["netprofit_pair_equal"] = (
+        audit["net_profit"].notna()
+        & audit["consolidated_net_profit_audit"].notna()
+        & audit["net_profit"].eq(audit["consolidated_net_profit_audit"])
+    )
+    return audit
 
 
 def _bigquery_environment() -> dict[str, object]:
@@ -140,7 +177,11 @@ def main() -> None:
     financial, inventory = _run_financial(pilot)
     _write(financial, "financial_pilot.csv")
     _write(inventory, "financial_schema_inventory.csv")
+    _write(financial, "financial_pilot_resolved.csv")
     _write(_financial_summary(financial), "financial_summary.csv")
+    _write(_definition_audit(financial), "financial_definition_audit.csv")
+    employee = _run_employee(pilot)
+    _write(employee, "employee_pilot.csv")
     patent_environment = _bigquery_environment()
     pd.DataFrame([patent_environment]).drop(columns=["freshness_query", "schema_query"]).to_csv(
         OUTPUT_DIR / "patent_environment.csv", index=False, encoding="utf-8-sig"

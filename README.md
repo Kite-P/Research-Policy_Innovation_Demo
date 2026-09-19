@@ -56,13 +56,13 @@ Python 3.13.15
 
 ### 第四章 4.1F：免费真实数据源可行性验证
 
-已用 20 家上市公司 pilot 实际验证 AKShare 免费 Profile 和财务接口：
+已用同一组 20 家上市公司 pilot 实际复核 AKShare 免费 Profile、财务和 F10 指标接口：
 
 - SSE、SZSE、BSE 的 Profile 样本级成功率均为 100%；
-- 资产、负债和现金年度字段均有返回；收入与净利润存在多个候选列，未自动选择；
-- 历史员工人数和 firm-year ST 状态暂不可得；
-- Google Patents BigQuery 因本机缺少免费身份验证环境，未执行 freshness 和企业名称匹配；
-- 当前状态为 `FREE_STACK_NOT_READY`，不进入 4.2F。
+- `TOTAL_OPERATE_INCOME`、`PARENT_NETPROFIT` 以及资产、负债、现金均为 60/60 firm-year；
+- F10 `STAFF_NUM` 为 60/60，20 家企业均有三年变化；研发费用 `RESEARCH_EXPENSE` 为 57/60；
+- Google Patents BigQuery 因本机缺少身份验证环境，未执行 freshness 和企业名称匹配；
+- 当前状态为 `FREE_FINANCIAL_READY_PATENT_AUTH_REQUIRED`，不进入 4.2F。
 
 可行性报告：
 

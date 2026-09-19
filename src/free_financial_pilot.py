@@ -11,8 +11,8 @@ FIELD_CANDIDATES = {
     "total_assets": (("TOTAL_ASSETS",), ("TOTAL", "ASSET")),
     "total_liabilities": (("TOTAL_LIABILITIES", "TOTAL_LIABILITY"), ("TOTAL", "LIABIL")),
     "cash": (("MONETARYFUNDS", "MONETARY_FUNDS"), ("MONETARY", "FUND")),
-    "revenue": (("TOTAL_OPERATE_INCOME", "OPERATE_INCOME"), ("OPERATE", "INCOME")),
-    "net_profit": (("PARENT_NETPROFIT", "PARENT_NET_PROFIT", "NETPROFIT"), ("NET", "PROFIT")),
+    "revenue": (("TOTAL_OPERATE_INCOME",), ()),
+    "net_profit": (("PARENT_NETPROFIT",), ()),
     "rd_expense": (
         ("RESEARCH_EXPENSE", "RESEARCH_AND_DEVELOPMENT_EXPENSE"),
         ("RESEARCH", "EXPENSE"),
@@ -131,6 +131,16 @@ def _resolve_field(frame: pd.DataFrame, target: str) -> str | None:
     return resolve_column(list(frame.columns), exact, contains)
 
 
+def resolve_financial_mapping(frame: pd.DataFrame) -> dict[str, str | None]:
+    columns = set(frame.columns)
+    return {
+        "revenue": "TOTAL_OPERATE_INCOME" if "TOTAL_OPERATE_INCOME" in columns else None,
+        "operating_income_narrow": "OPERATE_INCOME" if "OPERATE_INCOME" in columns else None,
+        "net_profit": "PARENT_NETPROFIT" if "PARENT_NETPROFIT" in columns else None,
+        "consolidated_net_profit_audit": "NETPROFIT" if "NETPROFIT" in columns else None,
+    }
+
+
 def _field_match_status(frame: pd.DataFrame, target: str) -> tuple[str | None, str]:
     exact, contains = FIELD_CANDIDATES[target]
     normalized = {_normalize_column(column): column for column in frame.columns}
@@ -176,6 +186,7 @@ def run_financial_pilot(pilot: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             base_error.append(f"{type(exc).__name__}: {str(exc)[:160]}")
 
         for year in PILOT_YEARS:
+            profit_mapping = resolve_financial_mapping(frames["profit_sheet"])
             row: dict[str, object] = {
                 "stock_code": stock_code,
                 "exchange": exchange,
@@ -185,6 +196,8 @@ def run_financial_pilot(pilot: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
                 "cash": None,
                 "revenue": None,
                 "net_profit": None,
+                "operating_income_narrow": None,
+                "consolidated_net_profit_audit": None,
                 "rd_expense": None,
                 "employees": None,
                 "financial_success": False,
@@ -212,6 +225,18 @@ def run_financial_pilot(pilot: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
                     field_errors.append(f"{match_status}_{target}")
                 elif source_row is not None:
                     row[target] = source_row.get(source_column)
+            profit_row, profit_ambiguous = (
+                _year_row(frames["profit_sheet"], year)
+                if not frames["profit_sheet"].empty
+                else (None, False)
+            )
+            if profit_ambiguous:
+                row["ambiguous_report_rows"] = True
+            if profit_row is not None and not profit_ambiguous:
+                for target in ("operating_income_narrow", "consolidated_net_profit_audit"):
+                    source_column = profit_mapping[target]
+                    if source_column is not None:
+                        row[target] = profit_row.get(source_column)
             complete = all(pd.notna(row[field]) for field in CORE_FIELDS)
             row["financial_success"] = bool(complete and not row["ambiguous_report_rows"])
             if not complete:
