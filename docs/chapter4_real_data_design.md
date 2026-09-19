@@ -79,6 +79,6 @@ Google Patents BigQuery 已从正式来源撤销，不再要求认证。CNIPA �
 
 ## 4.2F 当前执行状态
 
-已使用 SSE、SZSE、BSE 公开交易所列表构建 2020—2025 firm-year universe，输出为本地 ignored 的 `data/processed/real_company_universe.parquet` 和 `.dta`。当前结果为 5,565 家公司、29,362 个 firm-year；BSE 2020 年观测已排除。
+已使用 SSE、SZSE、BSE 当前列表及上海、深圳历史退市列表构建 2020—2025 firm-year universe，输出为本地 ignored 的 `data/processed/real_company_universe.parquet` 和 `.dta`。当前结果为 5,690 家企业、30,328 个合法 firm-year，其中当前企业 5,449 家、退市企业 241 家；BSE 2020 年观测已排除。
 
-由于列表接口对 SSE/SZSE 未提供完整注册地址和正式行业字段，当前省份和行业存在缺失，不能把该版本直接当作最终政策匹配面板。北交所新旧代码映射工具已完成，但官方对照表的程序化请求返回 403，未绕过访问控制；正式财务历史代码 fallback 需在合法下载官方对照表后补入。
+Profile pilot 已完成 60 家分层样本，但 CNINFO 当前响应缺少 `count`，AKShare 抛出 `KeyError: count`；正式法人全称、省份和行业尚未确认，不能使用证券简称回填。因此当前状态为 `REAL_UNIVERSE_NEEDS_FIX`，不能进入真实政策匹配或第五章样本构造。北交所新旧代码映射工具已完成，但官方对照表的程序化请求返回 403，未绕过访问控制；正式财务历史代码 fallback 需在合法下载官方对照表后补入。

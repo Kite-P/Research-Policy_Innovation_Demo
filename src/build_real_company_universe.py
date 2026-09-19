@@ -11,7 +11,9 @@ try:
 except ImportError:
     from bse_code_mapping import BSE_MAPPING_SOURCE, load_bse_mapping
 
-YEARS = range(2020, 2026)
+START_YEAR = 2020
+END_YEAR = 2025
+BSE_MARKET_START = pd.Timestamp("2021-11-15")
 
 
 def _code(value: object) -> str:
@@ -21,57 +23,100 @@ def _code(value: object) -> str:
     return text.zfill(6) if text.isdigit() else ""
 
 
+def _first(frame: pd.DataFrame, names: tuple[str, ...]) -> pd.Series:
+    for name in names:
+        if name in frame.columns:
+            return frame[name]
+    return pd.Series(pd.NA, index=frame.index)
+
+
+def _market_dates(listing_date: pd.Series, exchange: str) -> tuple[pd.Series, pd.Series]:
+    original = pd.to_datetime(listing_date, errors="coerce")
+    if exchange == "BSE":
+        market = original.where(original >= BSE_MARKET_START, BSE_MARKET_START)
+        return original, market
+    return original, original
+
+
+def _empty_delisting(frame: pd.DataFrame) -> pd.Series:
+    return pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
+
+
 def standardize_listing_frame(frame: pd.DataFrame, exchange: str) -> pd.DataFrame:
-    aliases = {
-        "stock_code_current": ("证券代码", "A股代码"),
-        "company_name": ("公司全称", "证券全称", "A股简称", "证券简称"),
-        "listing_date": ("上市日期", "A股上市日期"),
-        "industry_name": ("所属行业",),
-        "province": ("地区",),
-    }
-
-    def first(names: tuple[str, ...]) -> pd.Series:
-        for name in names:
-            if name in frame.columns:
-                return frame[name]
-        return pd.Series(pd.NA, index=frame.index)
-
+    stock_code = _first(frame, ("证券代码", "A股代码")).map(_code)
+    stock_name = _first(frame, ("证券简称", "A股简称"))
+    legal_name = _first(frame, ("公司名称", "公司全称"))
+    listing_date, market_date = _market_dates(_first(frame, ("上市日期", "A股上市日期")), exchange)
+    predecessor_date = (
+        listing_date
+        if exchange == "BSE"
+        else pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
+    )
+    firm_key = exchange + ":" + stock_code + ":" + market_date.dt.strftime(
+        "%Y-%m-%d"
+    ).fillna("")
     result = pd.DataFrame(
         {
-            "stock_code_current": first(aliases["stock_code_current"]).map(_code),
-            "company_name": first(aliases["company_name"]).astype("string").str.strip(),
-            "listing_date": pd.to_datetime(first(aliases["listing_date"]), errors="coerce"),
-            "industry_name": first(aliases["industry_name"]),
-            "province": first(aliases["province"]),
+            "firm_key": firm_key,
+            "stock_code_current": stock_code,
+            "historical_stock_code": pd.NA,
+            "stock_code_source_year": market_date.dt.year.astype("Int64"),
+            "stock_name": stock_name.astype("string").str.strip(),
+            "company_name_legal": legal_name.astype("string").str.strip(),
+            "exchange": exchange,
+            "listing_date": listing_date,
+            "predecessor_listing_date": predecessor_date,
+            "market_listing_date": market_date,
+            "delisting_date": _empty_delisting(frame),
+            "industry_name": _first(frame, ("所属行业",)),
+            "registered_address": pd.Series(pd.NA, index=frame.index, dtype="string"),
+            "province": _first(frame, ("地区",)),
+            "province_source": "static_registered_address",
+            "profile_source": "AKShare exchange listing",
+            "profile_status": "LISTING_SOURCE_ONLY",
         }
     )
-    result["exchange"] = exchange
-    result["firm_key"] = (
-        exchange
-        + ":"
-        + result["company_name"].fillna("")
-        + ":"
-        + result["listing_date"].dt.strftime("%Y-%m-%d").fillna("")
+    result.loc[result["province"].isna(), "province_source"] = "unavailable"
+    return result.drop_duplicates(subset=["firm_key"]).reset_index(drop=True)
+
+
+def standardize_delisted_frame(frame: pd.DataFrame, exchange: str) -> pd.DataFrame:
+    code_names = ("公司代码", "证券代码", "A股代码")
+    stock_code = _first(frame, code_names).map(_code)
+    stock_name = _first(frame, ("公司简称", "证券简称", "A股简称"))
+    listing_date, market_date = _market_dates(_first(frame, ("上市日期", "A股上市日期")), exchange)
+    predecessor_date = (
+        listing_date
+        if exchange == "BSE"
+        else pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
     )
-    result["stock_code_source_year"] = result["listing_date"].dt.year.astype("Int64")
-    result["delisting_date"] = pd.NaT
-    result["registered_address"] = pd.NA
-    result["province_source"] = "static_registered_address"
-    return result[
-        [
-            "firm_key",
-            "stock_code_current",
-            "stock_code_source_year",
-            "company_name",
-            "exchange",
-            "listing_date",
-            "delisting_date",
-            "industry_name",
-            "registered_address",
-            "province",
-            "province_source",
-        ]
-    ].drop_duplicates(subset=["firm_key"])
+    firm_key = exchange + ":" + stock_code + ":" + market_date.dt.strftime(
+        "%Y-%m-%d"
+    ).fillna("")
+    delisting_date = pd.to_datetime(
+        _first(frame, ("终止上市日期", "暂停上市日期", "退市日期")), errors="coerce"
+    )
+    return pd.DataFrame(
+        {
+            "firm_key": firm_key,
+            "stock_code_current": stock_code,
+            "historical_stock_code": pd.NA,
+            "stock_code_source_year": market_date.dt.year.astype("Int64"),
+            "stock_name": stock_name.astype("string").str.strip(),
+            "company_name_legal": pd.Series(pd.NA, index=frame.index, dtype="string"),
+            "exchange": exchange,
+            "listing_date": listing_date,
+            "predecessor_listing_date": predecessor_date,
+            "market_listing_date": market_date,
+            "delisting_date": delisting_date,
+            "industry_name": pd.Series(pd.NA, index=frame.index, dtype="string"),
+            "registered_address": pd.Series(pd.NA, index=frame.index, dtype="string"),
+            "province": pd.Series(pd.NA, index=frame.index, dtype="string"),
+            "province_source": "unavailable",
+            "profile_source": "AKShare delisting list",
+            "profile_status": "DELISTED_PROFILE_UNAVAILABLE",
+        }
+    ).drop_duplicates(subset=["firm_key"]).reset_index(drop=True)
 
 
 def fetch_exchange_listings() -> pd.DataFrame:
@@ -82,25 +127,47 @@ def fetch_exchange_listings() -> pd.DataFrame:
         ],
         ignore_index=True,
     )
-    frames = [
-        standardize_listing_frame(sse, "SSE"),
-        standardize_listing_frame(ak.stock_info_sz_name_code(symbol="A股列表"), "SZSE"),
-        standardize_listing_frame(ak.stock_info_bj_name_code(), "BSE"),
-    ]
-    return pd.concat(frames, ignore_index=True).drop_duplicates("firm_key")
+    return pd.concat(
+        [
+            standardize_listing_frame(sse, "SSE"),
+            standardize_listing_frame(ak.stock_info_sz_name_code(symbol="A股列表"), "SZSE"),
+            standardize_listing_frame(ak.stock_info_bj_name_code(), "BSE"),
+        ],
+        ignore_index=True,
+    ).drop_duplicates("firm_key")
+
+
+def fetch_delisted_listings() -> pd.DataFrame:
+    return pd.concat(
+        [
+            standardize_delisted_frame(ak.stock_info_sh_delist(symbol="全部"), "SSE"),
+            standardize_delisted_frame(
+                ak.stock_info_sz_delist(symbol="终止上市公司"), "SZSE"
+            ),
+        ],
+        ignore_index=True,
+    ).drop_duplicates("firm_key")
+
+
+def filter_firm_universe(firms: pd.DataFrame) -> pd.DataFrame:
+    valid = firms["market_listing_date"].le(pd.Timestamp("2025-12-31"))
+    valid &= firms["delisting_date"].isna() | firms["delisting_date"].ge(
+        pd.Timestamp("2020-01-01")
+    )
+    return firms.loc[valid].copy()
 
 
 def expand_firm_years(firms: pd.DataFrame, start_year: int, end_year: int) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for _, firm in firms.iterrows():
-        listing_date = firm["listing_date"]
-        delisting_date = firm["delisting_date"]
         for year in range(start_year, end_year + 1):
             year_start = pd.Timestamp(year=year, month=1, day=1)
             year_end = pd.Timestamp(year=year, month=12, day=31)
-            listed = pd.notna(listing_date) and listing_date <= year_end
-            if pd.notna(delisting_date):
-                listed = listed and delisting_date > year_start
+            listed = pd.notna(firm["market_listing_date"]) and (
+                firm["market_listing_date"] <= year_end
+            )
+            if pd.notna(firm["delisting_date"]):
+                listed = listed and firm["delisting_date"] > year_start
             if listed and not (firm["exchange"] == "BSE" and year == 2020):
                 row = firm.to_dict()
                 row["year"] = year
@@ -109,7 +176,11 @@ def expand_firm_years(firms: pd.DataFrame, start_year: int, end_year: int) -> pd
 
 
 def build_universe(mapping_path: Path | None = None) -> tuple[pd.DataFrame, dict[str, object]]:
-    firms = fetch_exchange_listings()
+    current = fetch_exchange_listings()
+    delisted = fetch_delisted_listings()
+    firms = filter_firm_universe(
+        pd.concat([current, delisted], ignore_index=True).drop_duplicates("firm_key")
+    )
     mapping = load_bse_mapping(mapping_path) if mapping_path else pd.DataFrame(
         columns=["old_stock_code", "new_stock_code"]
     )
@@ -121,15 +192,23 @@ def build_universe(mapping_path: Path | None = None) -> tuple[pd.DataFrame, dict
         firms.loc[
             bse & firms["stock_code_current"].isin(mapped_new), "bse_mapping_status"
         ] = "matched"
-    panel = expand_firm_years(firms, 2020, 2025)
+    panel = expand_firm_years(firms, START_YEAR, END_YEAR)
     audit = {
         "company_count": int(len(firms)),
+        "current_firms": int((firms["profile_status"] == "LISTING_SOURCE_ONLY").sum()),
+        "delisted_firms": int((firms["profile_status"] == "DELISTED_PROFILE_UNAVAILABLE").sum()),
         "firm_year_count": int(len(panel)),
         "exchange_distribution": firms["exchange"].value_counts().to_dict(),
         "year_distribution": panel["year"].value_counts().sort_index().to_dict(),
-        "province_missing": int(firms["province"].isna().sum()),
-        "industry_missing": int(firms["industry_name"].isna().sum()),
-        "company_name_missing": int(firms["company_name"].isna().sum()),
+        "province_coverage": firms.groupby("exchange")["province"]
+        .apply(lambda s: int(s.notna().sum()))
+        .to_dict(),
+        "industry_coverage": firms.groupby("exchange")["industry_name"]
+        .apply(lambda s: int(s.notna().sum()))
+        .to_dict(),
+        "legal_name_coverage": firms.groupby("exchange")["company_name_legal"]
+        .apply(lambda s: int(s.notna().sum()))
+        .to_dict(),
         "bse_mapping_source": BSE_MAPPING_SOURCE,
         "bse_mapping_rows": int(len(mapping)),
         "bse_unmatched": int((firms["bse_mapping_status"] == "unmatched_official_mapping").sum()),
