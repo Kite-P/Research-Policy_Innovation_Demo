@@ -28,7 +28,6 @@ def test_required_profile_fields_exist():
         "province",
         "industry_code",
         "industry_name",
-        "st_flag",
     }
     fields = {
         row["field_name"]
@@ -36,6 +35,33 @@ def test_required_profile_fields_exist():
         if row["dataset"] == "profile" and row["required"] == "yes"
     }
     assert required <= fields
+
+
+def test_nonblocking_st_and_rd_fields_are_optional():
+    rows = {
+        row["field_name"]: row
+        for row in read_csv(SCHEMA_PATH)
+        if row["dataset"] == "profile"
+    }
+    assert rows["st_flag"]["required"] == "no"
+    assert rows["st_flag"]["availability"] == "unavailable_free_source"
+    financial = {
+        row["field_name"]: row
+        for row in read_csv(SCHEMA_PATH)
+        if row["dataset"] == "financial"
+    }
+    assert financial["rd_expense"]["required"] == "no"
+    assert financial["rd_expense"]["availability"] == "partial"
+
+
+def test_patent_source_and_entity_scope_are_cnipa_listed_entity_only():
+    rows = {
+        row["field_name"]: row
+        for row in read_csv(SCHEMA_PATH)
+        if row["dataset"] == "patent"
+    }
+    assert rows["patent_source"]["preferred_source"] == "CNIPA official patent data"
+    assert rows["patent_entity_scope"]["definition"] == "listed_entity_only"
 
 
 def test_required_financial_fields_exist():
@@ -47,7 +73,6 @@ def test_required_financial_fields_exist():
         "revenue",
         "net_profit",
         "cash",
-        "rd_expense",
         "employees",
     }
     fields = {

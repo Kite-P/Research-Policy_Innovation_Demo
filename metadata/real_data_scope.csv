@@ -19,10 +19,11 @@ primary_policy_metric,policy_continuity_tfidf,frozen,Inherited from Chapter 3 de
 zero_semantics,source_dependent_before_4_4,pending,Requires complete universe and source documentation
 missing_semantics,source_dependent_before_4_4,pending,Requires coverage and entity-matching audit
 citation_rule,optional_only_if_comparable,pending,Requires citation definition and common window
-source_access_status,FREE_FINANCIAL_READY_PATENT_AUTH_REQUIRED,frozen,Free pilot resolved core financial fields and employee history; patent authentication remains unavailable
+source_access_status,CNIPA_REGISTRATION_REQUIRED,pending,CNIPA is the selected free patent source; formal collection waits for user registration and legal access
 free_profile_source,AKShare/CNINFO,frozen_for_pilot,20-firm pilot returned Profile fields across SSE SZSE and BSE
 free_financial_source,AKShare/EastMoney public statements,frozen_for_pilot,Core financial fields resolved on 60 of 60 pilot firm-years; R&D is 57 of 60
 free_employee_source,AKShare/EastMoney F10 indicator,frozen_for_pilot,STAFF_NUM returned for 60 of 60 pilot firm-years and varied across all 20 firms
 free_financial_core_status,60/60 firm-years,frozen_for_pilot,TOTAL_OPERATE_INCOME and PARENT_NETPROFIT selected with explicit definitions
 free_employee_status,60/60 firm-years,frozen_for_pilot,2022-2024 year-end employee counts available in pilot
-free_patent_source,Google Patents BigQuery,pending,GOOGLE_AUTH_REQUIRED and no freshness query executed
+free_patent_source,CNIPA official patent data,pending_user_registration,Formal collection requires user registration; no automated patent download in this phase
+patent_entity_scope,listed_entity_only,frozen_for_primary,Use listed legal entity and verified historical legal names; do not add subsidiaries or aliases automatically

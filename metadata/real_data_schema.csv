@@ -7,7 +7,7 @@ profile,listing_date,yes,scope,date,annual,Original listing date,AKShare/CNINFO,
 profile,province,yes,merge,string,annual,Registered province; historical firm-year preferred,AKShare/CNINFO,official registry,,,text,required,Mark static_address if only current address exists
 profile,industry_code,yes,scope,string,annual,Formal industry classification code,AKShare/CNINFO,official classification,,,code,required,Use for financial-industry exclusion
 profile,industry_name,yes,scope,string,annual,Formal industry classification name,AKShare/CNINFO,official classification,,,text,required,Do not infer from company name
-profile,st_flag,yes,robustness,boolean,annual,ST or *ST status in year,AKShare/CNINFO,exchange disclosure,,,flag,required,Retain in baseline; historical status unavailable in pilot
+profile,st_flag,no,robustness,boolean,annual,ST or *ST status in year,AKShare/CNINFO,exchange disclosure,,,flag,unavailable_free_source,Retain in baseline; historical status unavailable in pilot and not required for baseline entry
 profile,city,no,descriptive,string,annual,Registered city,structured financial database,official registry,,,text,recommended,Historical availability to be audited
 profile,ownership,no,descriptive,category,annual,Ownership category,structured financial database,official registry,,,category,recommended,Do not force missing values
 profile,firm_id_source,no,key,string,annual,Permanent source enterprise identifier,structured financial database,source-specific,,,identifier,recommended,Needed for code changes and relisting
@@ -19,15 +19,15 @@ financial,total_liabilities,yes,control,float,annual,Period-end consolidated tot
 financial,revenue,yes,control,float,annual,Operating revenue,AKShare/EastMoney public statements,official filing,TOTAL_OPERATE_INCOME,营业总收入,currency,required,Keep OPERATE_INCOME as an audit field and use the explicitly selected total operating income field
 financial,net_profit,yes,control,float,annual,Profit attributable to owners of the parent,AKShare/EastMoney public statements,official filing,PARENT_NETPROFIT,归属于母公司所有者的净利润,currency,required,Keep NETPROFIT as an audit field and do not mix consolidated and parent-attributable definitions
 financial,cash,yes,control,float,annual,Cash or cash and cash equivalents per source definition,AKShare/EastMoney public statements,official filing,,,currency,required,Do not mix concepts
-financial,rd_expense,yes,descriptive,float,annual,Current-period R&D expenditure or investment,AKShare/EastMoney public statements,official filing,,,currency,Partial,Source field RESEARCH_EXPENSE requires metadata confirmation
+financial,rd_expense,no,descriptive,float,annual,Current-period R&D expenditure or investment,AKShare/EastMoney public statements,official filing,RESEARCH_EXPENSE,研发费用,currency,partial,Missing values remain missing; not a Chapter 5 baseline control
 financial,employees,yes,control,float,annual,Period-end employee count,AKShare/EastMoney F10 indicator,official filing,STAFF_NUM,报告期末员工人数,persons,required,60 of 60 pilot firm-years available; audit year-end date and source definition before full export
 patent,stock_code,yes,key,string,annual,Matched listed-company code,professional patent database,manual entity map,,,code,required,Entity scope must be documented
 patent,year,yes,key,integer,annual,Patent application year,professional patent database,patent detail aggregation,,,year,required,Do not substitute grant year
 patent,invention_patents,yes,outcome,float,annual,Invention patent applications,professional patent database,patent detail aggregation,,,count,required,Application-year count
 patent,utility_patents,yes,outcome,float,annual,Utility model patent applications,professional patent database,patent detail aggregation,,,count,required,Application-year count
 patent,patent_total,yes,outcome,float,annual,Invention plus utility model applications,professional patent database,derived from required fields,,,count,required,Exclude design patents from baseline total
-patent,patent_entity_scope,yes,scope,category,annual,Entity matching scope for patent counts,professional patent database,manual entity map,,,category,required,Listed plus consolidated subsidiaries preferred
-patent,patent_source,yes,provenance,string,annual,Named patent data source,professional patent database,manual source record,,,text,required,No credentials in public metadata
+patent,patent_entity_scope,yes,scope,category,annual,listed_entity_only,CNIPA official patent data,manual entity map,,,category,required,Listed legal entity only; verified historical legal names may be matched
+patent,patent_source,yes,provenance,string,annual,Named patent data source,CNIPA official patent data,manual source record,,,text,required,No credentials in public metadata
 patent,design_patents,no,audit,float,annual,Design patent applications,professional patent database,patent detail aggregation,,,count,recommended,Audit field only
 patent,forward_citations,no,secondary,float,annual,Forward citation count,professional patent database,patent detail aggregation,,,count,optional,Use only with comparable citation window
 patent,citation_window,no,secondary,string,annual,Forward-citation observation window,professional patent database,source documentation,,,text,optional,Required before citation_ln

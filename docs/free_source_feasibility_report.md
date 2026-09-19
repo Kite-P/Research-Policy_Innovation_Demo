@@ -1,4 +1,4 @@
-# 4.1F-R 免费数据源修正完成汇报
+# 4.1P 免费专利来源切换与 4.1F-R 财务复核汇报
 
 ## 1. Git
 
@@ -50,17 +50,17 @@ SSE、SZSE、BSE 的 Profile 请求均为 100% 成功。公司全称、行业、
 
 `RESEARCH_EXPENSE` 可作为研发费用字段，覆盖 SSE 24/24、SZSE 21/24、BSE 12/12；其缺失记录保留为 missing，不补零。ST/*ST firm-year 历史状态仍不可得，因此不进入 baseline 样本删除规则。该部分不修改第三章冻结变量。
 
-## 8. Google Patents
+## 8. Patent Source Decision
 
-- `bq` 和 `gcloud` 均未安装；未登录、未执行 BigQuery schema、freshness 或实体匹配查询。
-- 专利 SQL 已修正为对 `assignee` 与 `assignee_harmonized` 分别 `UNNEST`，并使用 `NORMALIZE` 后的名称匹配；相关查询构造测试通过。
-- 当前专利状态仍为 `GOOGLE_AUTH_REQUIRED`，不伪造 2020—2025 覆盖率、最新申请日期或企业匹配结果。
+- Google Patents BigQuery 已撤销，不再作为正式来源，也不再要求 Google Cloud authentication。
+- 正式来源切换为 CNIPA 官方免费数据系统，实体口径为 `listed_entity_only`。
+- CNIPA 查询、XLSX/XML 解析和公司名称规范化工具已完成；尚未注册、登录或下载专利。
 
 ## 9. Result and Scope Decision
 
-`FREE_FINANCIAL_READY_PATENT_AUTH_REQUIRED`
+`CNIPA_REGISTRATION_REQUIRED`
 
-免费 Profile、财务核心字段和员工人数 pilot 已通过；研发费用属于可用但部分缺失的描述性字段；历史注册地址、历史 ST 和专利认证仍是限制。BSE 不从正式总体中静默删除，正式数据下载前仍需进行全市场覆盖审计。4.2F 未执行。
+免费 Profile、财务核心字段和员工人数 pilot 已通过；研发费用属于可用但部分缺失的描述性字段；历史注册地址和历史 ST 仍是限制。BSE 不从正式总体中静默删除。CNIPA 尚未注册或下载，4.2F 和 4.3F 尚未执行。
 
 ## 10. Repository Boundary
 
@@ -71,4 +71,4 @@ SSE、SZSE、BSE 的 Profile 请求均为 100% 成功。公司全称、行业、
 
 ## 11. Stop
 
-`4.2F NOT EXECUTED`
+`CNIPA_REGISTRATION_REQUIRED`
