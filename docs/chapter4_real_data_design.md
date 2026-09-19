@@ -76,3 +76,9 @@ Google Patents BigQuery 已从正式来源撤销，不再要求认证。CNIPA �
 - 不下载专利、不扩展政策、不合并真实政策面板、不运行真实回归。
 
 完整结果见 [`free_source_feasibility_report.md`](free_source_feasibility_report.md)。
+
+## 4.2F 当前执行状态
+
+已使用 SSE、SZSE、BSE 公开交易所列表构建 2020—2025 firm-year universe，输出为本地 ignored 的 `data/processed/real_company_universe.parquet` 和 `.dta`。当前结果为 5,565 家公司、29,362 个 firm-year；BSE 2020 年观测已排除。
+
+由于列表接口对 SSE/SZSE 未提供完整注册地址和正式行业字段，当前省份和行业存在缺失，不能把该版本直接当作最终政策匹配面板。北交所新旧代码映射工具已完成，但官方对照表的程序化请求返回 403，未绕过访问控制；正式财务历史代码 fallback 需在合法下载官方对照表后补入。

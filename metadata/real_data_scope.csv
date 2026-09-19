@@ -27,3 +27,5 @@ free_financial_core_status,60/60 firm-years,frozen_for_pilot,TOTAL_OPERATE_INCOM
 free_employee_status,60/60 firm-years,frozen_for_pilot,2022-2024 year-end employee counts available in pilot
 free_patent_source,CNIPA official patent data,pending_user_registration,Formal collection requires user registration; no automated patent download in this phase
 patent_entity_scope,listed_entity_only,frozen_for_primary,Use listed legal entity and verified historical legal names; do not add subsidiaries or aliases automatically
+real_company_universe_status,BUILT_WITH_LISTING_FIELDS,frozen_for_phase,"5,565 companies and 29,362 firm-years from public exchange listings; province and SSE/SZSE industry enrichment remain audited missing fields"
+bse_mapping_status,OFFICIAL_FILE_REQUIRED,pending_user_registration,Use the official BSE old/new code table as a local input; never infer old codes by prefix replacement
