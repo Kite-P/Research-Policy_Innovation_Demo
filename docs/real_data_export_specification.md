@@ -8,6 +8,12 @@
 
 因此免费接口已具备财务核心字段 pilot 可行性，但不替代正式全市场真实数据来源。后续导出仍需保留来源数据字典、字段定义、报告口径和更新时间。
 
+## 4.3F 财务面板抓取协议
+
+财务面板只读取 `real_company_universe.parquet` 中的有效 firm-year。证券代码按 SSE/SZSE 当前代码查询；BSE 按官方新旧代码对照表依次尝试历史代码和当前 920 代码，并在 `financial_query_code` 中记录实际成功代码。同一 firm-year 只保留一条记录。
+
+全市场抓取使用逐公司缓存 `results/real_financial_fetch/cache/`，每家公司完成后立即写入，重跑跳过已有缓存。请求组之间默认间隔至少 1 秒，网络临时错误最多有限重试；遇到 403、429、验证码或 verification 响应立即停止当前来源，不做规避。真实缺失保持 missing，不补零、中位数或前向填充。
+
 ## Profile export
 
 Source: 待用户确认的 CSMAR、Wind、CNRDS 或学校数据库
