@@ -1,0 +1,37 @@
+source,component,interface,market,field,status,coverage,notes
+AKShare/CNINFO,profile,stock_profile_cninfo,SSE,company_name,PASS,1.000,8 of 8 pilot firms returned legal company name
+AKShare/CNINFO,profile,stock_profile_cninfo,SZSE,company_name,PASS,1.000,8 of 8 pilot firms returned legal company name
+AKShare/CNINFO,profile,stock_profile_cninfo,BSE,company_name,PASS,1.000,4 of 4 pilot firms returned legal company name
+AKShare/CNINFO,profile,stock_profile_cninfo,SSE,industry_name,PASS,1.000,8 of 8 pilot firms returned industry
+AKShare/CNINFO,profile,stock_profile_cninfo,SZSE,industry_name,PASS,1.000,8 of 8 pilot firms returned industry
+AKShare/CNINFO,profile,stock_profile_cninfo,BSE,industry_name,PASS,1.000,4 of 4 pilot firms returned industry
+AKShare/CNINFO,profile,stock_profile_cninfo,SSE,registered_address,PASS,1.000,Static registered address returned for 8 of 8
+AKShare/CNINFO,profile,stock_profile_cninfo,SZSE,registered_address,PASS,1.000,Static registered address returned for 8 of 8
+AKShare/CNINFO,profile,stock_profile_cninfo,BSE,registered_address,PASS,1.000,Static registered address returned for 4 of 4
+AKShare/CNINFO,profile,stock_profile_cninfo,SSE,province,PASS,1.000,Explicit province parser from registered address
+AKShare/CNINFO,profile,stock_profile_cninfo,SZSE,province,PASS,1.000,Explicit province parser from registered address
+AKShare/CNINFO,profile,stock_profile_cninfo,BSE,province,PASS,1.000,Explicit province parser from registered address
+AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,SSE,total_assets,PASS,1.000,24 of 24 firm-years
+AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,SZSE,total_assets,PASS,1.000,24 of 24 firm-years
+AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,BSE,total_assets,PASS,1.000,12 of 12 firm-years
+AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,SSE,total_liabilities,PASS,1.000,24 of 24 firm-years
+AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,SZSE,total_liabilities,PASS,1.000,24 of 24 firm-years
+AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,BSE,total_liabilities,PASS,1.000,12 of 12 firm-years
+AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,SSE,cash,PASS,1.000,24 of 24 firm-years
+AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,SZSE,cash,PASS,1.000,24 of 24 firm-years
+AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,BSE,cash,PASS,1.000,12 of 12 firm-years
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SSE,revenue,AMBIGUOUS,0.000,TOTAL_OPERATE_INCOME and OPERATE_INCOME both present
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SZSE,revenue,AMBIGUOUS,0.000,TOTAL_OPERATE_INCOME and OPERATE_INCOME both present
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,BSE,revenue,AMBIGUOUS,0.000,Multiple revenue candidates prevent automatic selection
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SSE,net_profit,AMBIGUOUS,0.000,NETPROFIT and PARENT_NETPROFIT both present
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SZSE,net_profit,AMBIGUOUS,0.000,NETPROFIT and PARENT_NETPROFIT both present
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,BSE,net_profit,AMBIGUOUS,0.000,NETPROFIT and PARENT_NETPROFIT both present
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SSE,rd_expense,PASS,1.000,RESEARCH_EXPENSE present for 24 of 24 firm-years
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,SZSE,rd_expense,PARTIAL,0.875,RESEARCH_EXPENSE present for 21 of 24 firm-years
+AKShare/EastMoney,financial,stock_profit_sheet_by_report_em,BSE,rd_expense,PASS,1.000,RESEARCH_EXPENSE present for 12 of 12 firm-years
+AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,SSE,employees,UNAVAILABLE_FREE_SOURCE,0.000,No reliable historical employee field identified
+AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,SZSE,employees,UNAVAILABLE_FREE_SOURCE,0.000,No reliable historical employee field identified
+AKShare/EastMoney,financial,stock_balance_sheet_by_report_em,BSE,employees,UNAVAILABLE_FREE_SOURCE,0.000,No reliable historical employee field identified
+Google Patents BigQuery,patent,publications,SSE,filing_date,GOOGLE_AUTH_REQUIRED,,bq and gcloud are not installed
+Google Patents BigQuery,patent,publications,SZSE,filing_date,GOOGLE_AUTH_REQUIRED,,bq and gcloud are not installed
+Google Patents BigQuery,patent,publications,BSE,filing_date,GOOGLE_AUTH_REQUIRED,,No freshness or entity match query executed

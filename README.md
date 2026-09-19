@@ -54,6 +54,20 @@ Python 3.13.15
 - 真实数据来源尚未在当前环境确认，状态为 `SOURCE_ACCESS_BLOCKED`，已形成后续人工导出规范；
 - 未下载大规模真实数据，未进入 4.2。
 
+### 第四章 4.1F：免费真实数据源可行性验证
+
+已用 20 家上市公司 pilot 实际验证 AKShare 免费 Profile 和财务接口：
+
+- SSE、SZSE、BSE 的 Profile 样本级成功率均为 100%；
+- 资产、负债和现金年度字段均有返回；收入与净利润存在多个候选列，未自动选择；
+- 历史员工人数和 firm-year ST 状态暂不可得；
+- Google Patents BigQuery 因本机缺少免费身份验证环境，未执行 freshness 和企业名称匹配；
+- 当前状态为 `FREE_STACK_NOT_READY`，不进入 4.2F。
+
+可行性报告：
+
+[`docs/free_source_feasibility_report.md`](docs/free_source_feasibility_report.md)
+
 研究设计：
 
 [`docs/chapter4_real_data_design.md`](docs/chapter4_real_data_design.md)

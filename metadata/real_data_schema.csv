@@ -1,26 +1,26 @@
 dataset,field_name,required,role,target_dtype,frequency,definition,preferred_source,fallback_source,source_field,source_definition,unit,availability,notes
-profile,stock_code,yes,key,string,annual,6-digit exchange security code,structured financial database,official exchange file,,,code,required,Keep as string and retain exchange separately
-profile,company_name,yes,identifier,string,annual,Listed company name,structured financial database,official exchange file,,,text,required,Do not use as sole firm identifier
-profile,year,yes,key,integer,annual,Calendar year,structured financial database,official exchange file,,,year,required,Must be within collection window
-profile,exchange,yes,scope,category,annual,SSE SZSE or BSE,structured financial database,official exchange file,,,category,required,2020 BSE observations are invalid
-profile,listing_date,yes,scope,date,annual,Original listing date,structured financial database,official exchange file,,,date,required,Use to enforce listing-period rule
-profile,province,yes,merge,string,annual,Registered province; historical firm-year preferred,structured financial database,official registry,,,text,required,Mark static_address if only current address exists
-profile,industry_code,yes,scope,string,annual,Formal industry classification code,structured financial database,official classification,,,code,required,Use for financial-industry exclusion
-profile,industry_name,yes,scope,string,annual,Formal industry classification name,structured financial database,official classification,,,text,required,Do not infer from company name
-profile,st_flag,yes,robustness,boolean,annual,ST or *ST status in year,structured financial database,exchange disclosure,,,flag,required,Retain in baseline
+profile,stock_code,yes,key,string,annual,6-digit exchange security code,AKShare/CNINFO,official exchange file,,,code,required,Keep as string and retain exchange separately
+profile,company_name,yes,identifier,string,annual,Listed company name,AKShare/CNINFO,official exchange file,,,text,required,Do not use as sole firm identifier
+profile,year,yes,key,integer,annual,Calendar year,AKShare/CNINFO,official exchange file,,,year,required,Must be within collection window
+profile,exchange,yes,scope,category,annual,SSE SZSE or BSE,AKShare/CNINFO,official exchange file,,,category,required,2020 BSE observations are invalid
+profile,listing_date,yes,scope,date,annual,Original listing date,AKShare/CNINFO,official exchange file,,,date,required,Use to enforce listing-period rule
+profile,province,yes,merge,string,annual,Registered province; historical firm-year preferred,AKShare/CNINFO,official registry,,,text,required,Mark static_address if only current address exists
+profile,industry_code,yes,scope,string,annual,Formal industry classification code,AKShare/CNINFO,official classification,,,code,required,Use for financial-industry exclusion
+profile,industry_name,yes,scope,string,annual,Formal industry classification name,AKShare/CNINFO,official classification,,,text,required,Do not infer from company name
+profile,st_flag,yes,robustness,boolean,annual,ST or *ST status in year,AKShare/CNINFO,exchange disclosure,,,flag,required,Retain in baseline; historical status unavailable in pilot
 profile,city,no,descriptive,string,annual,Registered city,structured financial database,official registry,,,text,recommended,Historical availability to be audited
 profile,ownership,no,descriptive,category,annual,Ownership category,structured financial database,official registry,,,category,recommended,Do not force missing values
 profile,firm_id_source,no,key,string,annual,Permanent source enterprise identifier,structured financial database,source-specific,,,identifier,recommended,Needed for code changes and relisting
 profile,delisting_date,no,scope,date,annual,Delisting date,structured financial database,exchange disclosure,,,date,recommended,Retain prior listed-period observations
-financial,stock_code,yes,key,string,annual,6-digit exchange security code,structured financial database,official exchange file,,,code,required,Must match profile
-financial,year,yes,key,integer,annual,Calendar year,structured financial database,official exchange file,,,year,required,2020-2025
-financial,total_assets,yes,control,float,annual,Period-end consolidated total assets,structured financial database,official filing,,,currency,required,Source unit must be recorded
-financial,total_liabilities,yes,control,float,annual,Period-end consolidated total liabilities,structured financial database,official filing,,,currency,required,Source unit must be recorded
-financial,revenue,yes,control,float,annual,Operating revenue,structured financial database,official filing,,,currency,required,Use one definition across firms
-financial,net_profit,yes,control,float,annual,Unified net profit definition,structured financial database,official filing,,,currency,required,Prefer attributable net profit if consistently available
-financial,cash,yes,control,float,annual,Cash or cash and cash equivalents per source definition,structured financial database,official filing,,,currency,required,Do not mix concepts
-financial,rd_expense,yes,descriptive,float,annual,Current-period R&D expenditure or investment,structured financial database,official filing,,,currency,recommended,Definition must come from metadata
-financial,employees,yes,control,float,annual,Period-end employee count,structured financial database,official filing,,,persons,required,Use documented time point
+financial,stock_code,yes,key,string,annual,6-digit exchange security code,AKShare/EastMoney public statements,official exchange file,,,code,required,Must match profile
+financial,year,yes,key,integer,annual,Calendar year,AKShare/EastMoney public statements,official exchange file,,,year,required,2020-2025
+financial,total_assets,yes,control,float,annual,Period-end consolidated total assets,AKShare/EastMoney public statements,official filing,,,currency,required,Source unit must be recorded
+financial,total_liabilities,yes,control,float,annual,Period-end consolidated total liabilities,AKShare/EastMoney public statements,official filing,,,currency,required,Source unit must be recorded
+financial,revenue,yes,control,float,annual,Operating revenue,AKShare/EastMoney public statements,official filing,,,currency,Multiple candidates,Do not choose between TOTAL_OPERATE_INCOME and OPERATE_INCOME without source definition
+financial,net_profit,yes,control,float,annual,Unified net profit definition,AKShare/EastMoney public statements,official filing,,,currency,Multiple candidates,Do not choose between NETPROFIT and PARENT_NETPROFIT without source definition
+financial,cash,yes,control,float,annual,Cash or cash and cash equivalents per source definition,AKShare/EastMoney public statements,official filing,,,currency,required,Do not mix concepts
+financial,rd_expense,yes,descriptive,float,annual,Current-period R&D expenditure or investment,AKShare/EastMoney public statements,official filing,,,currency,Partial,Source field RESEARCH_EXPENSE requires metadata confirmation
+financial,employees,yes,control,float,annual,Period-end employee count,AKShare/EastMoney public statements,official filing,,,persons,Unavailable,No reliable historical employee field identified in pilot
 patent,stock_code,yes,key,string,annual,Matched listed-company code,professional patent database,manual entity map,,,code,required,Entity scope must be documented
 patent,year,yes,key,integer,annual,Patent application year,professional patent database,patent detail aggregation,,,year,required,Do not substitute grant year
 patent,invention_patents,yes,outcome,float,annual,Invention patent applications,professional patent database,patent detail aggregation,,,count,required,Application-year count

@@ -61,6 +61,16 @@ Baseline 使用合并财务报表，禁止在企业之间混用母公司与合�
 
 ## 当前状态
 
-`SOURCE_ACCESS_BLOCKED`
+4.1F 免费来源 pilot 已完成，当前状态为 `FREE_STACK_NOT_READY`。
 
-当前需要用户确认并通过学校或个人合法权限完成金融数据库和专利数据库访问，之后按 [`real_data_export_specification.md`](real_data_export_specification.md) 导出最小字段集。现有本地数据属于训练阶段数据，不能作为真实企业样本进入第五章。
+AKShare/CNINFO 在 20 家 pilot 上取得了 Profile、法定公司全称、行业、注册地址和省份；AKShare/EastMoney 公开财务接口取得了资产、负债和现金，但收入与净利润同时存在多个候选列，按照字段审计规则不能自动选择；历史员工人数和 firm-year ST 状态未获得。Google Patents BigQuery 由于当前环境缺少免费身份验证工具，未执行 schema、freshness 或企业名称匹配查询。
+
+因此：
+
+- 不修改第三章冻结变量；
+- 不把 BSE 从正式总体中静默删除，保留 `PENDING_SCOPE_REVISION_BSE`；
+- 对员工控制保留 `PENDING_DESIGN_REVISION_EMPLOYEE`；
+- 不把免费 pilot 结果当作正式真实研究数据；
+- 不进入 4.2F、全市场下载或真实回归。
+
+完整结果见 [`free_source_feasibility_report.md`](free_source_feasibility_report.md)。
