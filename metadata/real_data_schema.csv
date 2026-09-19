@@ -1,0 +1,37 @@
+dataset,field_name,required,role,target_dtype,frequency,definition,preferred_source,fallback_source,source_field,source_definition,unit,availability,notes
+profile,stock_code,yes,key,string,annual,6-digit exchange security code,structured financial database,official exchange file,,,code,required,Keep as string and retain exchange separately
+profile,company_name,yes,identifier,string,annual,Listed company name,structured financial database,official exchange file,,,text,required,Do not use as sole firm identifier
+profile,year,yes,key,integer,annual,Calendar year,structured financial database,official exchange file,,,year,required,Must be within collection window
+profile,exchange,yes,scope,category,annual,SSE SZSE or BSE,structured financial database,official exchange file,,,category,required,2020 BSE observations are invalid
+profile,listing_date,yes,scope,date,annual,Original listing date,structured financial database,official exchange file,,,date,required,Use to enforce listing-period rule
+profile,province,yes,merge,string,annual,Registered province; historical firm-year preferred,structured financial database,official registry,,,text,required,Mark static_address if only current address exists
+profile,industry_code,yes,scope,string,annual,Formal industry classification code,structured financial database,official classification,,,code,required,Use for financial-industry exclusion
+profile,industry_name,yes,scope,string,annual,Formal industry classification name,structured financial database,official classification,,,text,required,Do not infer from company name
+profile,st_flag,yes,robustness,boolean,annual,ST or *ST status in year,structured financial database,exchange disclosure,,,flag,required,Retain in baseline
+profile,city,no,descriptive,string,annual,Registered city,structured financial database,official registry,,,text,recommended,Historical availability to be audited
+profile,ownership,no,descriptive,category,annual,Ownership category,structured financial database,official registry,,,category,recommended,Do not force missing values
+profile,firm_id_source,no,key,string,annual,Permanent source enterprise identifier,structured financial database,source-specific,,,identifier,recommended,Needed for code changes and relisting
+profile,delisting_date,no,scope,date,annual,Delisting date,structured financial database,exchange disclosure,,,date,recommended,Retain prior listed-period observations
+financial,stock_code,yes,key,string,annual,6-digit exchange security code,structured financial database,official exchange file,,,code,required,Must match profile
+financial,year,yes,key,integer,annual,Calendar year,structured financial database,official exchange file,,,year,required,2020-2025
+financial,total_assets,yes,control,float,annual,Period-end consolidated total assets,structured financial database,official filing,,,currency,required,Source unit must be recorded
+financial,total_liabilities,yes,control,float,annual,Period-end consolidated total liabilities,structured financial database,official filing,,,currency,required,Source unit must be recorded
+financial,revenue,yes,control,float,annual,Operating revenue,structured financial database,official filing,,,currency,required,Use one definition across firms
+financial,net_profit,yes,control,float,annual,Unified net profit definition,structured financial database,official filing,,,currency,required,Prefer attributable net profit if consistently available
+financial,cash,yes,control,float,annual,Cash or cash and cash equivalents per source definition,structured financial database,official filing,,,currency,required,Do not mix concepts
+financial,rd_expense,yes,descriptive,float,annual,Current-period R&D expenditure or investment,structured financial database,official filing,,,currency,recommended,Definition must come from metadata
+financial,employees,yes,control,float,annual,Period-end employee count,structured financial database,official filing,,,persons,required,Use documented time point
+patent,stock_code,yes,key,string,annual,Matched listed-company code,professional patent database,manual entity map,,,code,required,Entity scope must be documented
+patent,year,yes,key,integer,annual,Patent application year,professional patent database,patent detail aggregation,,,year,required,Do not substitute grant year
+patent,invention_patents,yes,outcome,float,annual,Invention patent applications,professional patent database,patent detail aggregation,,,count,required,Application-year count
+patent,utility_patents,yes,outcome,float,annual,Utility model patent applications,professional patent database,patent detail aggregation,,,count,required,Application-year count
+patent,patent_total,yes,outcome,float,annual,Invention plus utility model applications,professional patent database,derived from required fields,,,count,required,Exclude design patents from baseline total
+patent,patent_entity_scope,yes,scope,category,annual,Entity matching scope for patent counts,professional patent database,manual entity map,,,category,required,Listed plus consolidated subsidiaries preferred
+patent,patent_source,yes,provenance,string,annual,Named patent data source,professional patent database,manual source record,,,text,required,No credentials in public metadata
+patent,design_patents,no,audit,float,annual,Design patent applications,professional patent database,patent detail aggregation,,,count,recommended,Audit field only
+patent,forward_citations,no,secondary,float,annual,Forward citation count,professional patent database,patent detail aggregation,,,count,optional,Use only with comparable citation window
+patent,citation_window,no,secondary,string,annual,Forward-citation observation window,professional patent database,source documentation,,,text,optional,Required before citation_ln
+policy,stock_code,no,merge,string,annual,Not applicable at source level,existing policy panel,,,code,not_applicable,Policy data joins through province-year
+policy,year,yes,key,integer,annual,Policy report year,existing policy database,official source,,,year,required,2019-2025 source window
+policy,province,yes,key,string,annual,Province-level policy geography,existing policy database,official source,,,text,required,Join key for firm-year matching
+policy,policy_continuity_tfidf,yes,exposure,float,annual,Primary policy text continuity proxy,existing policy database,official source,,,0-1,required,Not interpreted as true policy stability

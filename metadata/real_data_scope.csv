@@ -1,0 +1,22 @@
+item,value,status,reason
+population,Chinese mainland A-share listed companies,frozen,Formal research population
+markets,SSE;SZSE;BSE,frozen,All three mainland A-share exchanges
+unit_of_analysis,firm-year,frozen,Panel observation unit
+profile_start_year,2020,frozen,Profile and financial preparation window
+profile_end_year,2025,frozen,Profile and financial preparation window
+financial_start_year,2020,frozen,Financial collection window
+financial_end_year,2025,frozen,Financial collection window
+primary_patent_start_year,2020,frozen,Primary patent analysis window
+primary_patent_end_year,2024,frozen,Application-year right-censoring protection
+patent_year_basis,application_year,frozen,Closer to innovation timing than grant year
+patent_types,invention_applications+utility_model_applications,frozen,Primary patent quantity definition
+design_patent_rule,exclude_from_patent_total,frozen,Retain design_patents for audit only
+financial_firm_exclusion,exclude_financial_industry,frozen,Use formal industry classification
+st_baseline_rule,retain_st_and_star_st,frozen,Do not outcome-selectively remove ST firms
+province_definition,historical_firm_year_registered_province_preferred,frozen,Policy matching geography
+financial_statement_scope,consolidated,frozen,Keep accounting scope consistent
+primary_policy_metric,policy_continuity_tfidf,frozen,Inherited from Chapter 3 design
+zero_semantics,source_dependent_before_4_4,pending,Requires complete universe and source documentation
+missing_semantics,source_dependent_before_4_4,pending,Requires coverage and entity-matching audit
+citation_rule,optional_only_if_comparable,pending,Requires citation definition and common window
+source_access_status,SOURCE_ACCESS_BLOCKED,frozen,No direct real database access confirmed locally

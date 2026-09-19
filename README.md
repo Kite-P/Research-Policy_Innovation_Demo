@@ -43,6 +43,29 @@ Python 3.13.15
 
 ## 当前进展
 
+### 第四章 4.1：真实数据研究设计冻结
+
+已冻结真实企业研究的总体、样本年份、财务与专利变量口径、政策匹配规则、专利 0/missing 语义边界和 2025 年专利覆盖审计规则：
+
+- 研究总体为中国大陆上海、深圳、北京三地 A 股上市公司，分析单位为 `firm-year`；
+- 财务与 Profile 准备窗口为 2020—2025 年；专利 primary analysis 默认截止 2024 年，2025 年仅用于覆盖审计；
+- baseline 排除金融业，不因 ST/*ST 自动删除，采用合并财务报表口径；
+- 专利主时间口径为申请年，baseline 包括发明和实用新型申请，外观设计保留为审计字段；
+- 真实数据来源尚未在当前环境确认，状态为 `SOURCE_ACCESS_BLOCKED`，已形成后续人工导出规范；
+- 未下载大规模真实数据，未进入 4.2。
+
+研究设计：
+
+[`docs/chapter4_real_data_design.md`](docs/chapter4_real_data_design.md)
+
+导出规范与字段字典：
+
+[`docs/real_data_export_specification.md`](docs/real_data_export_specification.md)
+
+[`metadata/real_data_scope.csv`](metadata/real_data_scope.csv)
+
+[`metadata/real_data_schema.csv`](metadata/real_data_schema.csv)
+
 ### 2026-09-18：公司基本信息清洗
 
 已完成模拟公司基本信息数据的审计和正式清洗：
