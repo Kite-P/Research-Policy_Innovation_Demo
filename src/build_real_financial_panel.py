@@ -74,6 +74,7 @@ def extract_financial_rows(
     exchange: str,
     current_stock_code: str,
     financial_query_code: str,
+    firm_key: str,
     balance: pd.DataFrame,
     profit: pd.DataFrame,
     employee: pd.DataFrame,
@@ -89,6 +90,7 @@ def extract_financial_rows(
         employee_row = employees[year]
         row: dict[str, object] = {
             "exchange": exchange,
+            "firm_key": firm_key,
             "stock_code_current": str(current_stock_code).zfill(6),
             "year": year,
             "financial_query_code": str(financial_query_code).zfill(6),
@@ -132,28 +134,49 @@ def construct_variables(frame: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def _fetch_one_company(exchange: str, current_code: str, query_code: str) -> pd.DataFrame:
+def _fetch_one_company_for_years(
+    exchange: str,
+    current_code: str,
+    query_code: str,
+    firm_key: str,
+    valid_years: tuple[int, ...],
+) -> pd.DataFrame:
     symbol = to_em_symbol(exchange, query_code)
+    suffix = {"SSE": "SH", "SZSE": "SZ", "BSE": "BJ"}[exchange]
     balance = _call(ak.stock_balance_sheet_by_report_em, symbol=symbol)
     profit = _call(ak.stock_profit_sheet_by_report_em, symbol=symbol)
     employee = _call(
         ak.stock_financial_analysis_indicator_em,
-        symbol=f"{query_code.zfill(6)}.{ {'SSE': 'SH', 'SZSE': 'SZ', 'BSE': 'BJ'}[exchange] }",
+        symbol=f"{query_code.zfill(6)}.{suffix}",
         indicator="按报告期",
     )
-    return extract_financial_rows(exchange, current_code, query_code, balance, profit, employee)
+    return extract_financial_rows(
+        exchange,
+        current_code,
+        query_code,
+        firm_key,
+        balance,
+        profit,
+        employee,
+        valid_years,
+    )
 
 
 def fetch_company_with_fallback(
     exchange: str,
     current_code: str,
     query_codes: list[str],
+    firm_key: str,
+    valid_years: tuple[int, ...],
 ) -> pd.DataFrame:
     last_error: Exception | None = None
     for query_code in query_codes:
         try:
-            frame = _fetch_one_company(exchange, current_code, query_code)
-            if frame["financial_success"].all():
+            frame = _fetch_one_company_for_years(
+                exchange, current_code, query_code, firm_key, valid_years
+            )
+            valid_success = frame.loc[frame["year"].isin(valid_years), "financial_success"]
+            if len(valid_success) == len(valid_years) and valid_success.all():
                 return frame
         except SourceBlocked:
             raise
@@ -161,7 +184,29 @@ def fetch_company_with_fallback(
             last_error = exc
     if last_error is not None:
         raise last_error
-    return _fetch_one_company(exchange, current_code, query_codes[-1])
+    return _fetch_one_company_for_years(
+        exchange, current_code, query_codes[-1], firm_key, valid_years
+    )
+
+
+def _empty_financial_rows(
+    exchange: str, current_code: str, firm_key: str, valid_years: tuple[int, ...], error: str
+) -> pd.DataFrame:
+    rows = []
+    for year in valid_years:
+        row = {
+            "exchange": exchange,
+            "firm_key": firm_key,
+            "stock_code_current": str(current_code).zfill(6),
+            "year": year,
+            "financial_query_code": pd.NA,
+            **{field: np.nan for field in CORE_FIELDS},
+            "rd_expense": np.nan,
+            "financial_success": False,
+            "financial_error": error,
+        }
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def _cache_path(cache_dir: Path, exchange: str, current_code: str) -> Path:
@@ -181,25 +226,59 @@ def run_financial_panel(
         else pd.DataFrame(columns=["old_stock_code", "new_stock_code"])
     )
     rows: list[pd.DataFrame] = []
+    valid_pairs = universe[["firm_key", "year"]].drop_duplicates()
     firms = universe.drop_duplicates(subset=["firm_key"]).sort_values(
         ["exchange", "stock_code_current"]
     )
     for index, firm in enumerate(firms.itertuples(index=False)):
         path = _cache_path(cache_dir, firm.exchange, firm.stock_code_current)
-        if path.exists():
-            rows.append(pd.read_parquet(path))
+        valid_years = tuple(
+            sorted(
+                valid_pairs.loc[
+                    valid_pairs["firm_key"].eq(firm.firm_key), "year"
+                ].astype(int)
+            )
+        )
+        expected_keys = set(zip([firm.firm_key] * len(valid_years), valid_years))
+        cached = pd.read_parquet(path) if path.exists() else None
+        cached_keys = (
+            set(zip(cached["firm_key"], cached["year"].astype(int)))
+            if cached is not None and {"firm_key", "year"}.issubset(cached.columns)
+            else set()
+        )
+        if cached is not None and cached_keys == expected_keys:
+            rows.append(cached)
         else:
             query_codes = (
                 resolve_bse_codes(firm.stock_code_current, mapping)
                 if firm.exchange == "BSE"
                 else [str(firm.stock_code_current).zfill(6)]
             )
-            frame = fetch_company_with_fallback(firm.exchange, firm.stock_code_current, query_codes)
+            try:
+                frame = fetch_company_with_fallback(
+                    firm.exchange,
+                    firm.stock_code_current,
+                    query_codes,
+                    firm.firm_key,
+                    valid_years,
+                )
+            except SourceBlocked:
+                raise
+            except Exception as exc:
+                frame = _empty_financial_rows(
+                    firm.exchange,
+                    firm.stock_code_current,
+                    firm.firm_key,
+                    valid_years,
+                    f"{type(exc).__name__}: {str(exc)[:160]}",
+                )
             frame.to_parquet(path, index=False)
             rows.append(frame)
         if index < len(firms) - 1:
             time.sleep(request_spacing)
-    return construct_variables(pd.concat(rows, ignore_index=True))
+    actual = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+    result = valid_pairs.merge(actual, on=["firm_key", "year"], how="left")
+    return construct_variables(result)
 
 
 def coverage_table(panel: pd.DataFrame) -> pd.DataFrame:
