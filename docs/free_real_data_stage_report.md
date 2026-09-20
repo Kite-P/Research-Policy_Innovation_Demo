@@ -5,7 +5,7 @@
 - 4.1P: `017ac3316becfc5aa9fe976bb99adb3a5c29382c`
 - 4.2F: `bf8cf6eedaf13a32df079756f50d872d858e353b`
 - 4.2F-R: `3da731e9105a72d1dff23fa7e228fba9a16bc4a3`
-- 4.3F-R: 本轮提交后记录
+- 4.3F-R: `bed595b81b6b07818715748b1293733cc3014659`
 
 ## Patent Source Decision
 
