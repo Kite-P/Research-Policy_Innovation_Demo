@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 from pathlib import Path
 
@@ -110,6 +111,18 @@ def extract_financial_rows(
             "rd_expense": profit_row.get("RESEARCH_EXPENSE") if profit_row is not None else np.nan,
             "employees": employee_row.get("STAFF_NUM") if employee_row is not None else np.nan,
         }
+        row["balance_available"] = balance_row is not None
+        row["profit_available"] = profit_row is not None
+        row["employee_available"] = employee_row is not None
+        missing_fields = [field for field in CORE_FIELDS if pd.isna(row[field])]
+        row["failure_reason"] = ";".join(
+            [
+                *(["BALANCE_SOURCE_EMPTY"] if balance_row is None else []),
+                *(["PROFIT_SOURCE_EMPTY"] if profit_row is None else []),
+                *(["EMPLOYEE_SOURCE_EMPTY"] if employee_row is None else []),
+                *[f"FIELD_MISSING:{field}" for field in missing_fields],
+            ]
+        )
         row["financial_success"] = all(pd.notna(row[field]) for field in CORE_FIELDS)
         rows.append(row)
     return pd.DataFrame(rows)
@@ -118,8 +131,7 @@ def extract_financial_rows(
 def construct_variables(frame: pd.DataFrame) -> pd.DataFrame:
     result = frame.copy()
     positive = {
-        column: result[column].where(result[column] > 0)
-        for column in ("total_assets", "employees")
+        column: result[column].where(result[column] > 0) for column in ("total_assets", "employees")
     }
     assets = result["total_assets"].where(result["total_assets"] > 0)
     revenue = result["revenue"].where(result["revenue"] > 0)
@@ -202,15 +214,22 @@ def _empty_financial_rows(
             "financial_query_code": pd.NA,
             **{field: np.nan for field in CORE_FIELDS},
             "rd_expense": np.nan,
+            "balance_available": False,
+            "profit_available": False,
+            "employee_available": False,
             "financial_success": False,
             "financial_error": error,
+            "failure_reason": "SOURCE_BLOCKED"
+            if _is_blocking_error(RuntimeError(error))
+            else "QUERY_FAILED",
         }
         rows.append(row)
     return pd.DataFrame(rows)
 
 
-def _cache_path(cache_dir: Path, exchange: str, current_code: str) -> Path:
-    return cache_dir / f"{exchange}_{str(current_code).zfill(6)}.parquet"
+def financial_cache_path(cache_dir: Path, firm_key: str) -> Path:
+    safe_key = re.sub(r"[^A-Za-z0-9._-]+", "_", str(firm_key)).strip("._")
+    return cache_dir / f"{safe_key or 'unknown_firm'}.parquet"
 
 
 def run_financial_panel(
@@ -231,13 +250,9 @@ def run_financial_panel(
         ["exchange", "stock_code_current"]
     )
     for index, firm in enumerate(firms.itertuples(index=False)):
-        path = _cache_path(cache_dir, firm.exchange, firm.stock_code_current)
+        path = financial_cache_path(cache_dir, firm.firm_key)
         valid_years = tuple(
-            sorted(
-                valid_pairs.loc[
-                    valid_pairs["firm_key"].eq(firm.firm_key), "year"
-                ].astype(int)
-            )
+            sorted(valid_pairs.loc[valid_pairs["firm_key"].eq(firm.firm_key), "year"].astype(int))
         )
         expected_keys = set(zip([firm.firm_key] * len(valid_years), valid_years))
         cached = pd.read_parquet(path) if path.exists() else None
@@ -301,6 +316,8 @@ def _stata_ready(frame: pd.DataFrame) -> pd.DataFrame:
     result = frame.copy()
     for column in result.select_dtypes(include=["object", "string"]).columns:
         result[column] = result[column].where(result[column].notna(), "").astype(str)
+    for column in result.select_dtypes(include=["boolean"]).columns:
+        result[column] = result[column].astype("Int8")
     return result
 
 

@@ -5,6 +5,7 @@ from src.build_real_financial_panel import (
     construct_variables,
     extract_financial_rows,
     fetch_company_with_fallback,
+    financial_cache_path,
     run_financial_panel,
 )
 
@@ -26,15 +27,22 @@ def test_extract_financial_rows_uses_frozen_fields_and_query_code():
             "RESEARCH_EXPENSE": [2.0, None],
         }
     )
-    employee = pd.DataFrame(
-        {"REPORT_DATE": ["2020-12-31", "2021-12-31"], "STAFF_NUM": [100, 110]}
-    )
+    employee = pd.DataFrame({"REPORT_DATE": ["2020-12-31", "2021-12-31"], "STAFF_NUM": [100, 110]})
     result = extract_financial_rows(
         "SSE", "600000", "600000", "SSE:600000:2000-01-01", balance, profit, employee, (2020, 2021)
     )
     assert result.loc[result["year"].eq(2020), "revenue"].iloc[0] == 50.0
     assert result["financial_query_code"].eq("600000").all()
     assert pd.isna(result.loc[result["year"].eq(2021), "rd_expense"]).iloc[0]
+    assert result.loc[result["year"].eq(2020), "balance_available"].iloc[0]
+    assert result.loc[result["year"].eq(2020), "failure_reason"].iloc[0] == ""
+
+
+def test_financial_cache_is_keyed_by_firm_key(tmp_path):
+    first = financial_cache_path(tmp_path, "SSE:600000:2000-01-01")
+    second = financial_cache_path(tmp_path, "SSE:600000:2010-01-01")
+    assert first != second
+    assert first.name.endswith(".parquet")
 
 
 def test_construct_variables_preserves_invalid_values_as_missing():
@@ -67,9 +75,7 @@ def test_financial_fallback_checks_only_valid_years(monkeypatch):
         result["financial_success"] = result["year"].isin(valid_years)
         return result
 
-    monkeypatch.setattr(
-        "src.build_real_financial_panel._fetch_one_company_for_years", fake_fetch
-    )
+    monkeypatch.setattr("src.build_real_financial_panel._fetch_one_company_for_years", fake_fetch)
     result = fetch_company_with_fallback(
         "SSE", "600000", ["600000"], "SSE:600000:2000-01-01", (2022, 2023, 2024)
     )
@@ -109,9 +115,7 @@ def test_financial_keys_equal_valid_universe_keys(monkeypatch, tmp_path):
             )
         return pd.DataFrame(rows)
 
-    monkeypatch.setattr(
-        "src.build_real_financial_panel._fetch_one_company_for_years", fake_fetch
-    )
+    monkeypatch.setattr("src.build_real_financial_panel._fetch_one_company_for_years", fake_fetch)
     result = run_financial_panel(universe, tmp_path, request_spacing=0)
     assert set(map(tuple, result[["firm_key", "year"]].to_numpy())) == set(
         map(tuple, universe[["firm_key", "year"]].to_numpy())
@@ -155,8 +159,6 @@ def test_stale_cache_is_not_used_for_valid_years(monkeypatch, tmp_path):
             }
         )
 
-    monkeypatch.setattr(
-        "src.build_real_financial_panel._fetch_one_company_for_years", fake_fetch
-    )
+    monkeypatch.setattr("src.build_real_financial_panel._fetch_one_company_for_years", fake_fetch)
     result = run_financial_panel(universe, tmp_path, request_spacing=0)
     assert set(result.year) == {2022, 2023}

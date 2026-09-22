@@ -65,12 +65,23 @@
 
 原始数据、缓存、生成结果、日志和凭据均保持本地 ignored，不提交 GitHub。
 
+## 4.2F-E Profile 收口与财务覆盖 Gate
+
+- Profile 来源已由 CNINFO 切换为 EastMoney F10 `RPT_F10_BASIC_ORGINFO`；CNINFO 路线记录为 `AKSHARE_CNINFO_PROFILE_INCOMPATIBLE`。
+- 5,690 个 firm-level Profile 记录全部返回 `PASS`；合法名称、省份、CSRC 行业和 ORG_CODE 覆盖率均为 100%，省份冲突为 0。
+- 丰富后的企业总体仍为 30,328 个 firm-year，30328 个 `firm_key + year` 通过 Stata `isid`，年份为 2020—2025。
+- Profile 试点通过后执行了全量 enrichment；原始数据、缓存和生成结果仍保持 ignored，不提交 GitHub。
+- 财务缓存改用 `firm_key`，并记录来源组件可用性、字段级缺失和失败原因。
+- 旧 50 家 pilot 的成功率为 130/201；新的分层试点实际为 70 家，BSE 后 2021 新上市层在总体中为 0 家。SSE 当前层与近期 IPO SSE 未达到 90% 核心字段覆盖，财务 Gate 未通过。
+
+当前阶段状态：`PROFILE_GATE_PASS_FINANCIAL_GATE_NEEDS_FIX`。本轮未执行政策回归、专利下载或第五章真实识别。
+
 ## Blocking Issues
 
 1. CNIPA 仍需用户合法注册后才能进行人工专利导出。
 2. BSE 官方新旧代码表需通过合法下载作为本地输入。
-3. Profile pilot 仍受 CNINFO 返回结构缺少 `count` 的接口问题影响，法定名称、行业和省份 gate 未通过。
-4. 全市场财务抓取是可恢复的长时间任务，当前仅完成 50 家混合样本 pilot，未启动全市场抓取。
+3. SSE 财务来源覆盖低于 90% 门槛，需继续处理报表字段/历史代码映射后再启动全市场财务面板。
+4. BSE 官方新旧代码表仍需通过合法下载作为本地输入；本轮未用前缀推算替代官方映射。
 
 ## Next User Action
 

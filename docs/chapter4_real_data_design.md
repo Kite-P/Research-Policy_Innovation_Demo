@@ -81,4 +81,19 @@ Google Patents BigQuery 已从正式来源撤销，不再要求认证。CNIPA �
 
 已使用 SSE、SZSE、BSE 当前列表及上海、深圳历史退市列表构建 2020—2025 firm-year universe，输出为本地 ignored 的 `data/processed/real_company_universe.parquet` 和 `.dta`。当前结果为 5,690 家企业、30,328 个合法 firm-year，其中当前企业 5,449 家、退市企业 241 家；BSE 2020 年观测已排除。
 
-Profile pilot 已完成 60 家分层样本，但 CNINFO 当前响应缺少 `count`，AKShare 抛出 `KeyError: count`；正式法人全称、省份和行业尚未确认，不能使用证券简称回填。因此当前状态为 `REAL_UNIVERSE_NEEDS_FIX`，不能进入真实政策匹配或第五章样本构造。北交所新旧代码映射工具已完成，但官方对照表的程序化请求返回 403，未绕过访问控制；正式财务历史代码 fallback 需在合法下载官方对照表后补入。
+Profile pilot 已从 CNINFO 切换至 EastMoney F10 `RPT_F10_BASIC_ORGINFO`。正式 Profile 全量返回 5,690 个 firm-level 记录，`ORG_NAME`、`PROVINCE`/`REG_ADDRESS`、`INDUSTRYCSRC1`、`EM2016` 和 `ORG_CODE` 均通过字段审计；不使用证券简称回填法人全称。`real_company_universe_enriched` 保持 30,328 行，Stata 主键与年份复核通过。
+
+## 4.2F-E Profile 收口与财务覆盖 Gate
+
+本轮已完成：
+
+- 旧 CNINFO Profile 路线冻结为 `AKSHARE_CNINFO_PROFILE_INCOMPATIBLE`，不再作为正式 Profile 来源；
+- EastMoney Schema probe、60 家分层 Profile pilot 和 5,690 家全量 enrichment；
+- Profile 缓存按 `firm_key` 保存，串行请求间隔不少于 0.8 秒，403/429/验证码响应立即停止；
+- 当前企业法定名称、省份和 CSRC 行业覆盖率均为 100%，ORG_CODE 非空率为 100%，省份冲突数为 0；
+- `real_company_universe_enriched.parquet` 与 `.dta` 已生成，30328 个 `firm_key + year` 无重复，年份为 2020—2025，交易所分布与原总体一致；
+- 财务缓存键改为 `firm_key`，并增加资产负债表、利润表、员工指标可用性和结构化 `failure_reason` 字段；
+- 旧 50 家财务 pilot 已输出字段缺失分解；新的分层财务 pilot 实际为 70 家，因当前总体不存在 BSE 后 2021 新上市层；
+- 财务 Gate 结果：BSE 转板层、SZSE 当前层通过 90% 核心字段门槛；SSE 当前层和近期 IPO SSE 未通过，退市层也未通过。
+
+因此当前真实数据状态为 `PROFILE_GATE_PASS_FINANCIAL_GATE_NEEDS_FIX`。本轮不进入政策匹配、专利下载或第五章真实回归；财务来源和 BSE 历史代码映射仍需单独收口。
