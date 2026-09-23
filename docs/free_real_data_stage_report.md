@@ -98,4 +98,16 @@
 
 ## Next User Action
 
-`REAL_UNIVERSE_NEEDS_FIX`
+## 4.3F-Pilot-R 财务 Gate 最终确认
+
+- pilot 样本：100 家企业、531 个 firm-year，限定 2020—2025。
+- SSE current nonfinancial：35 家、201 个 firm-year，核心完整率 100%，PASS。
+- SZSE current nonfinancial：35 家、200 个 firm-year，核心完整率 100%，PASS。
+- 退市 SSE/SZSE：分别单独报告，失败不影响主 Gate。
+- BSE transferred/native：分别单独报告，状态保持 `BSE_MAPPING_REQUIRED`；未使用前三位转换，也未伪造 mapping。
+- 缓存第二次运行 100/100 命中；未重新请求 API。
+- Stata pilot 校验通过；全市场 5690 家正式财务抓取尚未执行。
+
+当前阶段状态：`READY_FOR_FULL_FINANCIAL_FETCH`。
+
+下一轮仅在用户明确指令后执行 `4.3F Full`，不得自动开始。

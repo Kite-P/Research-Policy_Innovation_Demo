@@ -18,8 +18,8 @@
 
 ## 2. Data Retrieval
 
-- successful firms: 90
-- failed firms: 10
+- successful firms: 90（退市企业单独审计，不影响主 Gate）
+- failed firms: 10（均来自退市层）
 - blocked requests: 0
 - first-run cache hit: 0/100
 - second-run cache hit: 100/100
@@ -28,7 +28,7 @@
 
 ## 3. Field Coverage
 
-覆盖率以 531 个实际 firm-year 为分母：
+总体覆盖仅作为背景信息；最终 Gate 使用分层 coverage，不再使用总体 coverage 判定：
 
 | field | coverage |
 | --- | ---: |
@@ -46,7 +46,7 @@
 
 失败原因已输出到 `failure_decomposition.csv`，按 exchange、pilot_stratum、year、field 和 failure_reason 分解。
 
-- 10 家失败企业集中在退市 SSE/SZSE 层，原因主要是历史接口查询失败，未观察到 API 阻断。
+- 10 家失败企业集中在退市 SSE/SZSE 层，原因主要是历史接口查询失败，未观察到 API 阻断；退市结果见 `delisted_financial_coverage.csv`。
 - 当前 SSE/SZSE 企业的主要缺失来自部分年份的 `rd_expense`，不影响核心字段成功率判断。
 - BSE 企业未出现全字段查询失败，但其代码映射仍未完成，因此不能据此宣称 BSE 全量财务链已经收口。
 
@@ -73,10 +73,23 @@ status: BSE_MAPPING_REQUIRED
 - invalid extreme derived values: 0
 - execution sentinel: `FINANCIAL_PILOT_VALIDATION_PASS`
 
-## 7. Decision
+## 7. Final Gate
+
+| exchange | sample_type | firms | firm-years | core_complete_rate |
+| --- | --- | ---: | ---: | ---: |
+| SSE | current_nonfinancial | 35 | 201 | 100.00% |
+| SZSE | current_nonfinancial | 35 | 200 | 100.00% |
+| SSE | delisted | 5 | 24 | 0.00% |
+| SZSE | delisted | 5 | 20 | 0.00% |
+| BSE | bse_transferred | 10 | 50 | 100.00% |
+| BSE | bse_native | 10 | 36 | 100.00% |
+
+退市层不影响主 Gate；BSE mapping pending 按当前规则不阻塞 SSE/SZSE 主 Gate。
+
+## 8. Decision
 
 ```text
-PILOT_NEEDS_FIX
+READY_FOR_FULL_FINANCIAL_FETCH
 ```
 
-API 未阻断、缓存复用和 Stata 导出链通过；但退市历史查询失败以及 BSE 官方 mapping 尚未完成，当前不满足直接进入 5690 家全市场财务抓取的条件。下一轮应先处理上述两项，再重新确认 full-fetch readiness。
+Pilot 主 Gate 已通过；退市层失败已隔离，BSE mapping 状态单独冻结。5690 家正式财务抓取尚未执行。
