@@ -111,3 +111,16 @@
 当前阶段状态：`READY_FOR_FULL_FINANCIAL_FETCH`。
 
 下一轮仅在用户明确指令后执行 `4.3F Full`，不得自动开始。
+
+## 4.3F-Full-Pipeline 真实财务全量抓取流水线
+
+- 已建立 5,690 家总体对应的正式财务目标清单、53 个确定性分块、firm_key 缓存、原子运行状态和失败停止机制。
+- 正式目标包含 5,272 家 SSE/SZSE 非金融企业、28,548 个 firm-year；BSE 非金融企业继续保留为 `BSE_MAPPING_REQUIRED`，金融企业保留为 `excluded_financial`。
+- 200 家 SSE/SZSE canary 已实际运行：200 家、1,114 个 firm-year；SSE 92 家、SZSE 108 家；当前企业 191 家、退市企业 9 家。
+- 首轮 9 家退市企业出现 37 个 `QUERY_FAILED` firm-year；当前 SSE/SZSE 核心完整率均为 100%，未发生来源阻断。
+- 核心字段总体覆盖率为 96.6786%，R&D 覆盖率为 88.4201%；第二次运行 200/200 缓存命中且未重新请求接口。
+- Stata canary 实际校验通过，sentinel 为 `FINANCIAL_FULL_CANARY_VALIDATION_PASS`。
+
+当前阶段状态：`FULL_FETCH_PIPELINE_READY`。
+
+全量财务抓取状态：`NOT_EXECUTED`。本轮未启动 5,690 家正式抓取、BSE 查询、政策匹配、专利收集或回归。
