@@ -16,6 +16,17 @@ PILOT_TARGETS = {
 }
 PILOT_SEED = "20260923"
 
+STRESS_TARGETS = {
+    "seasoned_current_sse": 30,
+    "seasoned_current_szse": 30,
+    "bse_transferred": 10,
+    "bse_post_2021": 10,
+    "recent_ipo_sse": 5,
+    "recent_ipo_szse": 5,
+    "delisted_sse": 5,
+    "delisted_szse": 5,
+}
+
 
 def classify_financial_industry(value: object) -> object:
     if pd.isna(value) or str(value).strip() == "":
@@ -64,6 +75,39 @@ def build_financial_pilot_sample(universe: pd.DataFrame) -> pd.DataFrame:
     selected = []
     for name, mask in strata.items():
         selected.append(stable_pick(firms.loc[mask], PILOT_TARGETS[name], PILOT_SEED, name))
+    return (
+        pd.concat(selected, ignore_index=True)
+        if selected
+        else firms.iloc[0:0].assign(pilot_stratum="")
+    )
+
+
+def build_financial_stress_test_sample(
+    universe: pd.DataFrame,
+    seed: str = PILOT_SEED,
+) -> pd.DataFrame:
+    """Build the fixed-stratum stress sample without cross-stratum replacement."""
+    firms = add_industry_flags(universe.drop_duplicates("firm_key").copy())
+    firms = firms.loc[
+        firms["industry_known"] & ~firms["is_financial_industry"].fillna(False)
+    ].copy()
+    listing_year = pd.to_datetime(firms["listing_date"], errors="coerce").dt.year
+    current = firms["delisting_date"].isna()
+    recent = listing_year.ge(2021)
+    strata = {
+        "seasoned_current_sse": firms["exchange"].eq("SSE") & current & ~recent,
+        "seasoned_current_szse": firms["exchange"].eq("SZSE") & current & ~recent,
+        "bse_transferred": firms["exchange"].eq("BSE") & firms["predecessor_listing_date"].notna(),
+        "bse_post_2021": firms["exchange"].eq("BSE") & firms["predecessor_listing_date"].isna(),
+        "recent_ipo_sse": firms["exchange"].eq("SSE") & current & recent,
+        "recent_ipo_szse": firms["exchange"].eq("SZSE") & current & recent,
+        "delisted_sse": firms["exchange"].eq("SSE") & ~current,
+        "delisted_szse": firms["exchange"].eq("SZSE") & ~current,
+    }
+    selected = [
+        stable_pick(firms.loc[mask], STRESS_TARGETS[name], seed, name)
+        for name, mask in strata.items()
+    ]
     return (
         pd.concat(selected, ignore_index=True)
         if selected

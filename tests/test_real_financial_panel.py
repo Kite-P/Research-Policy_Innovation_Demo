@@ -162,3 +162,42 @@ def test_stale_cache_is_not_used_for_valid_years(monkeypatch, tmp_path):
     monkeypatch.setattr("src.build_real_financial_panel._fetch_one_company_for_years", fake_fetch)
     result = run_financial_panel(universe, tmp_path, request_spacing=0)
     assert set(result.year) == {2022, 2023}
+
+
+def test_financial_cache_reuse(monkeypatch, tmp_path):
+    universe = pd.DataFrame(
+        {
+            "firm_key": ["SSE:600000:2000-01-01"] * 2,
+            "exchange": ["SSE"] * 2,
+            "stock_code_current": ["600000"] * 2,
+            "year": [2022, 2023],
+        }
+    )
+    calls = {"count": 0}
+
+    def fake_fetch(exchange, current, query, firm_key, valid_years):
+        calls["count"] += 1
+        return pd.DataFrame(
+            {
+                "exchange": [exchange] * len(valid_years),
+                "firm_key": [firm_key] * len(valid_years),
+                "stock_code_current": [current] * len(valid_years),
+                "year": list(valid_years),
+                "financial_query_code": [query] * len(valid_years),
+                "total_assets": [100.0] * len(valid_years),
+                "total_liabilities": [40.0] * len(valid_years),
+                "cash": [20.0] * len(valid_years),
+                "revenue": [50.0] * len(valid_years),
+                "net_profit": [5.0] * len(valid_years),
+                "rd_expense": [2.0] * len(valid_years),
+                "employees": [10.0] * len(valid_years),
+                "financial_success": [True] * len(valid_years),
+                "failure_reason": [""] * len(valid_years),
+            }
+        )
+
+    monkeypatch.setattr("src.build_real_financial_panel.fetch_company_with_fallback", fake_fetch)
+    first = run_financial_panel(universe, tmp_path, request_spacing=0)
+    second = run_financial_panel(universe, tmp_path, request_spacing=0)
+    assert calls["count"] == 1
+    pd.testing.assert_frame_equal(first, second)

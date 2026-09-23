@@ -2,6 +2,7 @@ import pandas as pd
 
 from src.real_financial_gate import (
     build_financial_pilot_sample,
+    build_financial_stress_test_sample,
     failure_decomposition_by_group,
     financial_gate,
     stable_pick,
@@ -40,6 +41,34 @@ def test_financial_pilot_contains_bse_native_when_available():
     frame.loc[frame["firm_key"].eq("BSE:3:2022"), "industry_csrc"] = "制造业-通用设备制造业"
     sample = build_financial_pilot_sample(frame)
     assert sample["firm_key"].eq("BSE:3:2022").any()
+
+
+def test_financial_stress_sample_is_deterministic():
+    frame = pd.DataFrame(
+        {
+            "firm_key": [f"SSE:{i}:2020" for i in range(40)]
+            + [f"SZSE:{i}:2020" for i in range(40, 80)],
+            "exchange": ["SSE"] * 40 + ["SZSE"] * 40,
+            "listing_date": pd.to_datetime(["2010-01-01"] * 80),
+            "predecessor_listing_date": pd.NaT,
+            "delisting_date": pd.NaT,
+            "industry_csrc": ["制造业-通用设备制造业"] * 80,
+        }
+    )
+    a = build_financial_stress_test_sample(frame, seed="test-seed")
+    b = build_financial_stress_test_sample(frame.sample(frac=1, random_state=7), seed="test-seed")
+    assert a[["firm_key", "pilot_stratum"]].reset_index(drop=True).equals(
+        b[["firm_key", "pilot_stratum"]].reset_index(drop=True)
+    )
+
+
+def test_financial_stress_sample_does_not_cross_fill_strata():
+    frame = _universe().assign(
+        stock_code_current=["000001", "000002", "830001"],
+        industry_csrc="制造业-通用设备制造业",
+    )
+    sample = build_financial_stress_test_sample(frame)
+    assert set(sample["pilot_stratum"]) == {"seasoned_current_sse", "bse_post_2021"}
 
 
 def test_failure_decomposition_groups_by_exchange_year():
