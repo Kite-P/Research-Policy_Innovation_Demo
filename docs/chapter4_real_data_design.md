@@ -96,4 +96,4 @@ Profile pilot 已从 CNINFO 切换至 EastMoney F10 `RPT_F10_BASIC_ORGINFO`。�
 - 旧 50 家财务 pilot 已输出字段缺失分解；新的分层财务 pilot 实际为 70 家，因当前总体不存在 BSE 后 2021 新上市层；
 - 财务 Gate 结果：BSE 转板层、SZSE 当前层通过 90% 核心字段门槛；SSE 当前层和近期 IPO SSE 未通过，退市层也未通过。
 
-因此当前真实数据状态为 `PROFILE_GATE_PASS_FINANCIAL_GATE_NEEDS_FIX`。本轮不进入政策匹配、专利下载或第五章真实回归；财务来源和 BSE 历史代码映射仍需单独收口。
+因此当前真实数据状态为 `READY_FOR_FULL_FINANCIAL_FETCH`，仅表示 SSE/SZSE 当前非金融企业财务 Gate 已通过，不表示已经完成全市场财务抓取。BSE 仍需官方新旧代码映射，历史 firm-year 省份仍未解决。本轮不进入政策匹配、专利下载或第五章真实回归。

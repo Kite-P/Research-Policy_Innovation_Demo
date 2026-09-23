@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 import pandas as pd
 
 PILOT_TARGETS = {
@@ -12,10 +14,40 @@ PILOT_TARGETS = {
     "bse_transferred": 10,
     "bse_post_2021": 10,
 }
+PILOT_SEED = "20260923"
+
+
+def classify_financial_industry(value: object) -> object:
+    if pd.isna(value) or str(value).strip() == "":
+        return pd.NA
+    return str(value).strip() == "金融业" or str(value).strip().startswith("金融业-")
+
+
+def add_industry_flags(universe: pd.DataFrame) -> pd.DataFrame:
+    result = universe.copy()
+    result["industry_known"] = result["industry_csrc"].notna() & result["industry_csrc"].astype(
+        "string"
+    ).str.strip().ne("")
+    result["is_financial_industry"] = (
+        result["industry_csrc"].map(classify_financial_industry).astype("boolean")
+    )
+    return result
+
+
+def stable_pick(frame: pd.DataFrame, n: int, seed: str, stratum: str) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    candidates = frame.drop_duplicates("firm_key").copy()
+    candidates["_stable_key"] = candidates["firm_key"].map(
+        lambda value: hashlib.sha256(f"{seed}|{stratum}|{value}".encode()).hexdigest()
+    )
+    selected = candidates.sort_values(["_stable_key", "firm_key"]).head(n)
+    return selected.drop(columns="_stable_key").assign(pilot_stratum=stratum).reset_index(drop=True)
 
 
 def build_financial_pilot_sample(universe: pd.DataFrame) -> pd.DataFrame:
-    firms = universe.drop_duplicates("firm_key").copy()
+    firms = add_industry_flags(universe.drop_duplicates("firm_key").copy())
+    firms = firms.loc[firms["industry_known"] & ~firms["is_financial_industry"]].copy()
     listing_year = pd.to_datetime(firms["listing_date"], errors="coerce").dt.year
     current = firms["delisting_date"].isna()
     recent = listing_year.ge(2021)
@@ -31,9 +63,7 @@ def build_financial_pilot_sample(universe: pd.DataFrame) -> pd.DataFrame:
     }
     selected = []
     for name, mask in strata.items():
-        group = firms.loc[mask].sort_values("firm_key").head(PILOT_TARGETS[name]).copy()
-        group["pilot_stratum"] = name
-        selected.append(group)
+        selected.append(stable_pick(firms.loc[mask], PILOT_TARGETS[name], PILOT_SEED, name))
     return (
         pd.concat(selected, ignore_index=True)
         if selected
@@ -89,9 +119,64 @@ def failure_decomposition(panel: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def financial_gate(panel: pd.DataFrame) -> pd.DataFrame:
+def failure_decomposition_by_group(panel: pd.DataFrame) -> pd.DataFrame:
+    fields = (
+        "total_assets",
+        "total_liabilities",
+        "cash",
+        "revenue",
+        "net_profit",
+        "employees",
+    )
     rows = []
-    for (exchange, stratum), group in panel.groupby(["exchange", "pilot_stratum"], dropna=False):
+    base = panel.copy()
+    base["current_status"] = base["delisting_date"].isna().map({True: "current", False: "delisted"})
+    for (exchange, stratum, status, year), group in base.groupby(
+        ["exchange", "pilot_stratum", "current_status", "year"], dropna=False
+    ):
+        for field in fields:
+            rows.append(
+                {
+                    "exchange": exchange,
+                    "pilot_stratum": stratum,
+                    "current_status": status,
+                    "year": year,
+                    "field": field,
+                    "failure_reason": f"FIELD_MISSING:{field}",
+                    "rows": int(group[field].isna().sum()),
+                }
+            )
+        reasons = (
+            group.get("failure_reason", pd.Series("", index=group.index)).fillna("").astype(str)
+        )
+        for reason, count in (
+            reasons.str.split(";").explode().loc[lambda s: s.ne("")].value_counts().items()
+        ):
+            rows.append(
+                {
+                    "exchange": exchange,
+                    "pilot_stratum": stratum,
+                    "current_status": status,
+                    "year": year,
+                    "field": "",
+                    "failure_reason": reason,
+                    "rows": int(count),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def financial_gate(panel: pd.DataFrame) -> pd.DataFrame:
+    if "industry_known" not in panel or "is_financial_industry" not in panel:
+        panel = add_industry_flags(panel)
+    eligible = panel.loc[
+        panel["exchange"].isin(["SSE", "SZSE"])
+        & panel["delisting_date"].isna()
+        & panel["industry_known"]
+        & ~panel["is_financial_industry"].fillna(False)
+    ].copy()
+    rows = []
+    for (exchange, stratum), group in eligible.groupby(["exchange", "pilot_stratum"], dropna=False):
         rows.append(
             {
                 "exchange": exchange,
@@ -107,6 +192,20 @@ def financial_gate(panel: pd.DataFrame) -> pd.DataFrame:
                 )
                 if len(group)
                 else False,
+            }
+        )
+    for exchange in ("SSE", "SZSE"):
+        group = eligible.loc[eligible["exchange"].eq(exchange)]
+        rate = float(group["financial_success"].fillna(False).mean()) if len(group) else 0.0
+        rows.append(
+            {
+                "exchange": exchange,
+                "pilot_stratum": f"{exchange}_current_nonfinancial_combined",
+                "firms": int(group["firm_key"].nunique()),
+                "rows": int(len(group)),
+                "core_complete_rate": rate,
+                "rd_coverage": float(group["rd_expense"].notna().mean()) if len(group) else 0.0,
+                "gate_pass_90pct_core": rate >= 0.90,
             }
         )
     return pd.DataFrame(rows)

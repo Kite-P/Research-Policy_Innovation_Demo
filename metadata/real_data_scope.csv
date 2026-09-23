@@ -23,9 +23,9 @@ source_access_status,CNIPA_REGISTRATION_REQUIRED,pending,CNIPA is the selected f
 free_profile_source,EastMoney F10 RPT_F10_BASIC_ORGINFO,frozen_for_profile_gate,5690 firm-level records returned legal name province industry and ORG_CODE
 free_financial_source,AKShare/EastMoney public statements,frozen_for_pilot,Core financial fields resolved on 60 of 60 pilot firm-years; R&D is 57 of 60
 free_employee_source,AKShare/EastMoney F10 indicator,frozen_for_pilot,STAFF_NUM returned for 60 of 60 pilot firm-years and varied across all 20 firms
-free_financial_core_status,FINANCIAL_GATE_NEEDS_FIX,pilot_audit_complete,SSE current and recent IPO core coverage below 90 percent while SZSE current and BSE transferred pass
+free_financial_core_status,READY_FOR_FULL_FINANCIAL_FETCH,pilot_audit_complete,SSE and SZSE current nonfinancial core coverage both meet the 90 percent gate; BSE remains separately pending official mapping
 free_employee_status,partial_by_stratum,pilot_audit_complete,Employee coverage is retained as observed and missingness is not recoded to zero
 free_patent_source,CNIPA official patent data,pending_user_registration,Formal collection requires user registration; no automated patent download in this phase
 patent_entity_scope,listed_entity_only,frozen_for_primary,Use listed legal entity and verified historical legal names; do not add subsidiaries or aliases automatically
-real_company_universe_status,PROFILE_ENRICHED_FINANCIAL_GATE_NEEDS_FIX,frozen_for_phase,"5,690 firms and 30,328 firm-years; EastMoney Profile gate passes, financial stratified pilot remains below the 90 percent SSE core threshold"
+real_company_universe_status,PROFILE_AND_SSE_SZSE_FINANCIAL_GATE_PASS,frozen_for_phase,"5,690 firms and 30,328 firm-years; Profile gate passes and both SSE/SZSE current nonfinancial financial gates pass"
 bse_mapping_status,OFFICIAL_FILE_REQUIRED,pending_user_registration,Use the official BSE old/new code table as a local input; never infer old codes by prefix replacement

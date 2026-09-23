@@ -76,11 +76,24 @@
 
 当前阶段状态：`PROFILE_GATE_PASS_FINANCIAL_GATE_NEEDS_FIX`。本轮未执行政策回归、专利下载或第五章真实识别。
 
+## 4.2F-E-R 财务 Gate 定义纠错与复核
+
+- BSE 日期逻辑已修正：286 家中 transferred 67 家，native/post-2021 219 家；BSE 2020 firm-year 为 0。
+- 新总体和 enriched universe 已重新生成；旧 Profile cache 仅按相同 `firm_key` 复用，native BSE 新键重新查询，Profile 5690/5690 PASS。
+- `INDUSTRYCSRC1` 的实际值是层级化中文 CSRC 行业名称，不是数值代码；金融业规则为值等于 `金融业` 或以 `金融业-` 开头。金融企业 132 家，非金融企业 5558 家，缺失 0 家。
+- 财务 pilot 使用 seed `20260923` 的 SHA-256 分层抽样，8 个 strata 均达到目标，共 80 家；金融企业和缺失行业企业均未进入 pilot。
+- SSE current nonfinancial：25/25，`SSE_FINANCE_GATE_PASS`；SZSE current nonfinancial：25/25，`SZSE_FINANCE_GATE_PASS`；合并主 Gate 通过。
+- SSE 失败分解显示失败集中在 5 家退市企业的 2020 观测，不属于 current nonfinancial 主 Gate；字段缺失和 `QUERY_FAILED` 已按 exchange、stratum、current/delisted、year 输出。
+- BSE transferred 与 native 均单独保留；由于官方新旧代码映射仍未取得，标记为 `BSE_GATE_PENDING_MAPPING`，不阻塞 SSE/SZSE 主 Gate。
+- EastMoney `province` 仍是 static Profile，不作为已解决的 historical firm-year province；正式政策匹配前仍需另行冻结省份口径。
+
+当前阶段状态：`READY_FOR_FULL_FINANCIAL_FETCH`。本轮未启动全市场抓取、政策匹配、CNIPA 下载或真实回归。
+
 ## Blocking Issues
 
 1. CNIPA 仍需用户合法注册后才能进行人工专利导出。
 2. BSE 官方新旧代码表需通过合法下载作为本地输入。
-3. SSE 财务来源覆盖低于 90% 门槛，需继续处理报表字段/历史代码映射后再启动全市场财务面板。
+3. 正式全市场财务抓取前仍需保持逐 firm_key 缓存、来源组件可用性和失败原因审计。
 4. BSE 官方新旧代码表仍需通过合法下载作为本地输入；本轮未用前缀推算替代官方映射。
 
 ## Next User Action

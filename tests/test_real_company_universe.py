@@ -27,9 +27,7 @@ def test_standardize_listing_frame_creates_stable_firm_key_and_fields():
 
 def test_firm_key_does_not_change_when_company_name_changes():
     first = standardize_listing_frame(
-        pd.DataFrame(
-            {"A股代码": ["600000"], "A股简称": ["甲公司"], "A股上市日期": ["2000-01-01"]}
-        ),
+        pd.DataFrame({"A股代码": ["600000"], "A股简称": ["甲公司"], "A股上市日期": ["2000-01-01"]}),
         "SSE",
     )
     second = standardize_listing_frame(
@@ -78,9 +76,17 @@ def test_expand_firm_years_excludes_bse_2020_and_respects_listing_date():
 
 def test_bse_transfer_listing_date_is_2021_11_15():
     frame = standardize_listing_frame(
-        pd.DataFrame(
-            {"证券代码": ["920185"], "证券简称": ["贝特瑞"], "上市日期": ["2020-07-27"]}
-        ),
+        pd.DataFrame({"证券代码": ["920185"], "证券简称": ["贝特瑞"], "上市日期": ["2020-07-27"]}),
         "BSE",
     )
     assert frame.loc[0, "market_listing_date"] == pd.Timestamp("2021-11-15")
+    assert frame.loc[0, "predecessor_listing_date"] == pd.Timestamp("2020-07-27")
+
+
+def test_bse_native_has_no_predecessor_date():
+    frame = standardize_listing_frame(
+        pd.DataFrame({"证券代码": ["920999"], "证券简称": ["新企业"], "上市日期": ["2022-01-01"]}),
+        "BSE",
+    )
+    assert pd.isna(frame.loc[0, "predecessor_listing_date"])
+    assert frame.loc[0, "market_listing_date"] == pd.Timestamp("2022-01-01")

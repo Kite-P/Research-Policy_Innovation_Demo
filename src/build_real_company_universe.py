@@ -47,14 +47,10 @@ def standardize_listing_frame(frame: pd.DataFrame, exchange: str) -> pd.DataFram
     stock_name = _first(frame, ("证券简称", "A股简称"))
     legal_name = _first(frame, ("公司名称", "公司全称"))
     listing_date, market_date = _market_dates(_first(frame, ("上市日期", "A股上市日期")), exchange)
-    predecessor_date = (
-        listing_date
-        if exchange == "BSE"
-        else pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
-    )
-    firm_key = exchange + ":" + stock_code + ":" + market_date.dt.strftime(
-        "%Y-%m-%d"
-    ).fillna("")
+    predecessor_date = listing_date.where(listing_date < BSE_MARKET_START, pd.NaT)
+    if exchange != "BSE":
+        predecessor_date = pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
+    firm_key = exchange + ":" + stock_code + ":" + market_date.dt.strftime("%Y-%m-%d").fillna("")
     result = pd.DataFrame(
         {
             "firm_key": firm_key,
@@ -85,38 +81,38 @@ def standardize_delisted_frame(frame: pd.DataFrame, exchange: str) -> pd.DataFra
     stock_code = _first(frame, code_names).map(_code)
     stock_name = _first(frame, ("公司简称", "证券简称", "A股简称"))
     listing_date, market_date = _market_dates(_first(frame, ("上市日期", "A股上市日期")), exchange)
-    predecessor_date = (
-        listing_date
-        if exchange == "BSE"
-        else pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
-    )
-    firm_key = exchange + ":" + stock_code + ":" + market_date.dt.strftime(
-        "%Y-%m-%d"
-    ).fillna("")
+    predecessor_date = listing_date.where(listing_date < BSE_MARKET_START, pd.NaT)
+    if exchange != "BSE":
+        predecessor_date = pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
+    firm_key = exchange + ":" + stock_code + ":" + market_date.dt.strftime("%Y-%m-%d").fillna("")
     delisting_date = pd.to_datetime(
         _first(frame, ("终止上市日期", "暂停上市日期", "退市日期")), errors="coerce"
     )
-    return pd.DataFrame(
-        {
-            "firm_key": firm_key,
-            "stock_code_current": stock_code,
-            "historical_stock_code": pd.NA,
-            "stock_code_source_year": market_date.dt.year.astype("Int64"),
-            "stock_name": stock_name.astype("string").str.strip(),
-            "company_name_legal": pd.Series(pd.NA, index=frame.index, dtype="string"),
-            "exchange": exchange,
-            "listing_date": listing_date,
-            "predecessor_listing_date": predecessor_date,
-            "market_listing_date": market_date,
-            "delisting_date": delisting_date,
-            "industry_name": pd.Series(pd.NA, index=frame.index, dtype="string"),
-            "registered_address": pd.Series(pd.NA, index=frame.index, dtype="string"),
-            "province": pd.Series(pd.NA, index=frame.index, dtype="string"),
-            "province_source": "unavailable",
-            "profile_source": "AKShare delisting list",
-            "profile_status": "DELISTED_PROFILE_UNAVAILABLE",
-        }
-    ).drop_duplicates(subset=["firm_key"]).reset_index(drop=True)
+    return (
+        pd.DataFrame(
+            {
+                "firm_key": firm_key,
+                "stock_code_current": stock_code,
+                "historical_stock_code": pd.NA,
+                "stock_code_source_year": market_date.dt.year.astype("Int64"),
+                "stock_name": stock_name.astype("string").str.strip(),
+                "company_name_legal": pd.Series(pd.NA, index=frame.index, dtype="string"),
+                "exchange": exchange,
+                "listing_date": listing_date,
+                "predecessor_listing_date": predecessor_date,
+                "market_listing_date": market_date,
+                "delisting_date": delisting_date,
+                "industry_name": pd.Series(pd.NA, index=frame.index, dtype="string"),
+                "registered_address": pd.Series(pd.NA, index=frame.index, dtype="string"),
+                "province": pd.Series(pd.NA, index=frame.index, dtype="string"),
+                "province_source": "unavailable",
+                "profile_source": "AKShare delisting list",
+                "profile_status": "DELISTED_PROFILE_UNAVAILABLE",
+            }
+        )
+        .drop_duplicates(subset=["firm_key"])
+        .reset_index(drop=True)
+    )
 
 
 def fetch_exchange_listings() -> pd.DataFrame:
@@ -141,9 +137,7 @@ def fetch_delisted_listings() -> pd.DataFrame:
     return pd.concat(
         [
             standardize_delisted_frame(ak.stock_info_sh_delist(symbol="全部"), "SSE"),
-            standardize_delisted_frame(
-                ak.stock_info_sz_delist(symbol="终止上市公司"), "SZSE"
-            ),
+            standardize_delisted_frame(ak.stock_info_sz_delist(symbol="终止上市公司"), "SZSE"),
         ],
         ignore_index=True,
     ).drop_duplicates("firm_key")
@@ -151,9 +145,7 @@ def fetch_delisted_listings() -> pd.DataFrame:
 
 def filter_firm_universe(firms: pd.DataFrame) -> pd.DataFrame:
     valid = firms["market_listing_date"].le(pd.Timestamp("2025-12-31"))
-    valid &= firms["delisting_date"].isna() | firms["delisting_date"].ge(
-        pd.Timestamp("2020-01-01")
-    )
+    valid &= firms["delisting_date"].isna() | firms["delisting_date"].ge(pd.Timestamp("2020-01-01"))
     return firms.loc[valid].copy()
 
 
@@ -181,17 +173,19 @@ def build_universe(mapping_path: Path | None = None) -> tuple[pd.DataFrame, dict
     firms = filter_firm_universe(
         pd.concat([current, delisted], ignore_index=True).drop_duplicates("firm_key")
     )
-    mapping = load_bse_mapping(mapping_path) if mapping_path else pd.DataFrame(
-        columns=["old_stock_code", "new_stock_code"]
+    mapping = (
+        load_bse_mapping(mapping_path)
+        if mapping_path
+        else pd.DataFrame(columns=["old_stock_code", "new_stock_code"])
     )
     bse = firms["exchange"].eq("BSE")
     firms["bse_mapping_status"] = "not_applicable"
     firms.loc[bse, "bse_mapping_status"] = "unmatched_official_mapping"
     if not mapping.empty:
         mapped_new = set(mapping["new_stock_code"])
-        firms.loc[
-            bse & firms["stock_code_current"].isin(mapped_new), "bse_mapping_status"
-        ] = "matched"
+        firms.loc[bse & firms["stock_code_current"].isin(mapped_new), "bse_mapping_status"] = (
+            "matched"
+        )
     panel = expand_firm_years(firms, START_YEAR, END_YEAR)
     audit = {
         "company_count": int(len(firms)),
