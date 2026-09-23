@@ -15,6 +15,7 @@ from src.real_financial_full import (  # noqa: E402
     PHASE_B,
     assign_chunks,
     build_full_financial_target,
+    manifest_fingerprint,
     universe_fingerprint,
 )
 
@@ -42,6 +43,7 @@ def build_manifest(universe_path: Path = UNIVERSE, output_dir: Path = OUTPUT) ->
         "BSE pending firms": int(phase_b.sum()),
         "financial excluded firms": int(manifest["fetch_phase"].eq("excluded_financial").sum()),
         "universe fingerprint": universe_fingerprint(universe),
+        "manifest fingerprint": manifest_fingerprint(manifest),
         "phase_a_chunks": int(manifest.loc[phase_a, "chunk_id"].nunique()),
     }
     (output_dir / "manifest_summary.json").write_text(

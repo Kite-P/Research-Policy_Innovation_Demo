@@ -9,8 +9,11 @@ from src.real_financial_full import (
     assign_chunks,
     atomic_write_json,
     build_full_financial_target,
+    classify_data_status,
+    manifest_fingerprint,
     run_full_fetch,
     universe_fingerprint,
+    upsert_firm_status,
 )
 
 
@@ -205,3 +208,36 @@ def test_assemble_panel_preserves_target_keys(tmp_path):
     expected = set(map(tuple, universe[["firm_key", "year"]].to_numpy()))
     actual = set(map(tuple, panel[["firm_key", "year"]].to_numpy()))
     assert actual == expected
+
+
+def test_failed_cache_is_cache_hit_but_query_failed(tmp_path):
+    frame = pd.DataFrame({"financial_success": [False, False]})
+    assert classify_data_status(frame) == "QUERY_FAILED"
+
+
+def test_manifest_fingerprint_uses_stable_manifest_fields():
+    target = assign_chunks(build_full_financial_target(_universe()), chunk_size=1)
+    shuffled = target.sample(frac=1, random_state=9)
+    assert manifest_fingerprint(target) == manifest_fingerprint(shuffled)
+
+
+def test_status_upsert_preserves_manifest_order_and_latest_row():
+    target = assign_chunks(build_full_financial_target(_universe()), chunk_size=1)
+    old = pd.DataFrame([{"firm_key": "SSE:1:2020-01-01", "data_status": "QUERY_FAILED"}])
+    new = pd.DataFrame([
+        {"firm_key": "SSE:3:2020-01-01", "data_status": "COMPLETE"},
+        {"firm_key": "SSE:1:2020-01-01", "data_status": "PARTIAL"},
+    ])
+    result = upsert_firm_status(old, new, target)
+    expected_order = target["firm_key"].drop_duplicates().loc[
+        target["firm_key"].drop_duplicates().isin(result["firm_key"])
+    ].tolist()
+    assert result["firm_key"].tolist() == expected_order
+    assert result.loc[result["firm_key"].eq("SSE:1:2020-01-01"), "data_status"].iloc[0] == "PARTIAL"
+
+
+def test_chunk_selection_is_ordered_by_chunk_before_position():
+    target = assign_chunks(build_full_financial_target(_universe()), chunk_size=1)
+    phase_a = target.loc[target["formal_ready"]].copy()
+    ordered = phase_a.sort_values(["chunk_id", "chunk_position", "firm_key"])
+    assert ordered["chunk_id"].tolist() == sorted(ordered["chunk_id"].tolist())

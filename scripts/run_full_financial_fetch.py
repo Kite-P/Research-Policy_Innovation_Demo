@@ -14,11 +14,16 @@ if str(ROOT) not in sys.path:
 
 from src.build_real_financial_panel import CORE_FIELDS, SourceBlocked, _stata_ready  # noqa: E402
 from src.real_financial_full import (  # noqa: E402
+    DATA_COMPLETE,
+    DATA_FAILED,
+    DATA_PARTIAL,
     PHASE_A,
+    RETRIEVAL_CACHE_HIT,
     assemble_full_financial_panel,
     assign_chunks,
     atomic_write_json,
     build_full_financial_target,
+    manifest_fingerprint,
     run_full_fetch,
 )
 
@@ -34,7 +39,9 @@ def _load_manifest(universe: pd.DataFrame) -> pd.DataFrame:
 
 
 def _select(manifest: pd.DataFrame, chunk: str | None, max_firms: int | None) -> pd.DataFrame:
-    selected = manifest.loc[manifest["formal_ready"]].sort_values(["chunk_position", "firm_key"])
+    selected = manifest.loc[manifest["formal_ready"]].sort_values(
+        ["chunk_id", "chunk_position", "firm_key"]
+    )
     if chunk:
         selected = selected.loc[selected["chunk_id"].eq(chunk)]
     if max_firms is not None:
@@ -42,7 +49,9 @@ def _select(manifest: pd.DataFrame, chunk: str | None, max_firms: int | None) ->
     return selected
 
 
-def _dry_run(manifest: pd.DataFrame, selected: pd.DataFrame) -> dict[str, object]:
+def _dry_run(
+    manifest: pd.DataFrame, selected: pd.DataFrame, expected_count: int
+) -> dict[str, object]:
     checks = {
         "selected_firms": int(len(selected)),
         "exchange_only_sse_szse": bool(set(selected["exchange"]) <= {"SSE", "SZSE"}),
@@ -51,7 +60,7 @@ def _dry_run(manifest: pd.DataFrame, selected: pd.DataFrame) -> dict[str, object
         "duplicate_firm_key": int(selected["firm_key"].duplicated().sum()),
     }
     checks["dry_run_pass"] = (
-        checks["selected_firms"] == 200
+        checks["selected_firms"] == expected_count
         and checks["exchange_only_sse_szse"]
         and checks["financial_firms"] == 0
         and checks["industry_missing"] == 0
@@ -72,9 +81,9 @@ def _write_chunk_snapshots(panel: pd.DataFrame, statuses: pd.DataFrame, output: 
             "firms": int(len(keys)),
             "firm_years": int(len(chunk_panel)),
             "successful_firms": int(
-                group["status"].isin(["COMPLETE", "CACHE_HIT", "STALE_CACHE_REFETCHED"]).sum()
+                group["data_status"].isin([DATA_COMPLETE, DATA_PARTIAL]).sum()
             ),
-            "failed_firms": int(group["status"].isin(["PARTIAL", "QUERY_FAILED"]).sum()),
+            "failed_firms": int(group["data_status"].eq(DATA_FAILED).sum()),
         }
         (chunk_dir / "chunk_summary.json").write_text(
             json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -99,16 +108,26 @@ def _write_chunk_snapshots(panel: pd.DataFrame, statuses: pd.DataFrame, output: 
 def run(args: argparse.Namespace) -> int:
     universe = pd.read_parquet(args.universe)
     manifest = _load_manifest(universe)
+    summary = json.loads((OUTPUT / "manifest_summary.json").read_text(encoding="utf-8"))
+    from src.real_financial_full import universe_fingerprint
+    if summary.get("universe fingerprint") != universe_fingerprint(universe):
+        raise ValueError("UNIVERSE_FINGERPRINT_MISMATCH")
+    if summary.get("manifest fingerprint") != manifest_fingerprint(manifest):
+        raise ValueError("MANIFEST_FINGERPRINT_MISMATCH")
     selected = _select(manifest, args.chunk, args.max_firms)
     if args.dry_run:
-        checks = _dry_run(manifest, selected)
+        available = int(manifest["formal_ready"].sum())
+        expected = min(args.max_firms, available) if args.max_firms is not None else len(selected)
+        checks = _dry_run(manifest, selected, expected)
         return 0 if checks["dry_run_pass"] else 1
     if not args.chunk and args.max_firms is None:
         raise ValueError("full runner requires --chunk or --max-firms")
     if args.spacing < 1.0:
         raise ValueError("--spacing must be at least 1.0")
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    state_path = OUTPUT / "run_state.json"
+    canary = args.max_firms is not None and args.chunk is None
+    state_path = OUTPUT / ("canary_run_state.json" if canary else "phase_a_run_state.json")
+    status_path = OUTPUT / "firm_status.csv"
     started = time.perf_counter()
     try:
         statuses = run_full_fetch(
@@ -119,10 +138,13 @@ def run(args: argparse.Namespace) -> int:
             spacing=args.spacing,
             max_firms=args.max_firms,
             state_path=state_path,
+            status_path=status_path,
+            resume=args.resume,
+            expected_fingerprint=summary["universe fingerprint"],
+            expected_manifest_fingerprint=summary["manifest fingerprint"],
         )
     except SourceBlocked:
         return 2
-    statuses.to_csv(OUTPUT / "firm_status.csv", index=False)
     canary_manifest = manifest.loc[manifest["firm_key"].isin(statuses["firm_key"])]
     canary_universe = universe.loc[universe["firm_key"].isin(statuses["firm_key"])]
     panel = assemble_full_financial_panel(canary_universe, OUTPUT / "cache", canary_manifest)
@@ -130,7 +152,7 @@ def run(args: argparse.Namespace) -> int:
     _write_chunk_snapshots(panel, statuses, OUTPUT)
     current = panel.loc[panel["delisting_date"].isna()] if "delisting_date" in panel else panel
     rates = current.groupby("exchange")["financial_success"].mean().to_dict()
-    all_cache_hit = bool(statuses["status"].eq("CACHE_HIT").all())
+    all_cache_hit = bool(statuses["retrieval_status"].eq(RETRIEVAL_CACHE_HIT).all())
     report = {
         "firms": int(len(statuses)),
         "firm_years": int(len(panel)),
@@ -141,10 +163,10 @@ def run(args: argparse.Namespace) -> int:
         if "delisting_date" in panel
         else 0,
         "complete firms": int(
-            statuses["status"].isin(["COMPLETE", "CACHE_HIT", "STALE_CACHE_REFETCHED"]).sum()
+            statuses["data_status"].isin([DATA_COMPLETE, DATA_PARTIAL]).sum()
         ),
-        "partial firms": int(statuses["status"].eq("PARTIAL").sum()),
-        "failed firms": int(statuses["status"].eq("QUERY_FAILED").sum()),
+        "partial firms": int(statuses["data_status"].eq(DATA_PARTIAL).sum()),
+        "failed firms": int(statuses["data_status"].eq(DATA_FAILED).sum()),
         "core field coverage": {
             field: float(panel[field].notna().mean()) if len(panel) else 0.0
             for field in CORE_FIELDS
