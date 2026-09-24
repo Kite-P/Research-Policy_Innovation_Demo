@@ -81,7 +81,7 @@ def _write_chunk_snapshots(panel: pd.DataFrame, statuses: pd.DataFrame, output: 
             "firms": int(len(keys)),
             "firm_years": int(len(chunk_panel)),
             "successful_firms": int(
-                group["data_status"].isin([DATA_COMPLETE, DATA_PARTIAL]).sum()
+                group["data_status"].eq(DATA_COMPLETE).sum()
             ),
             "failed_firms": int(group["data_status"].eq(DATA_FAILED).sum()),
         }
@@ -145,28 +145,29 @@ def run(args: argparse.Namespace) -> int:
         )
     except SourceBlocked:
         return 2
-    canary_manifest = manifest.loc[manifest["firm_key"].isin(statuses["firm_key"])]
-    canary_universe = universe.loc[universe["firm_key"].isin(statuses["firm_key"])]
+    report_statuses = statuses.loc[statuses["firm_key"].isin(selected["firm_key"])].copy()
+    canary_manifest = manifest.loc[manifest["firm_key"].isin(report_statuses["firm_key"])]
+    canary_universe = universe.loc[universe["firm_key"].isin(report_statuses["firm_key"])]
     panel = assemble_full_financial_panel(canary_universe, OUTPUT / "cache", canary_manifest)
     _stata_ready(panel).to_stata(OUTPUT / "canary_200.dta", write_index=False, version=118)
-    _write_chunk_snapshots(panel, statuses, OUTPUT)
+    _write_chunk_snapshots(panel, report_statuses, OUTPUT)
     current = panel.loc[panel["delisting_date"].isna()] if "delisting_date" in panel else panel
     rates = current.groupby("exchange")["financial_success"].mean().to_dict()
-    all_cache_hit = bool(statuses["retrieval_status"].eq(RETRIEVAL_CACHE_HIT).all())
+    all_cache_hit = bool(report_statuses["retrieval_status"].eq(RETRIEVAL_CACHE_HIT).all())
     report = {
-        "firms": int(len(statuses)),
+        "firms": int(len(report_statuses)),
         "firm_years": int(len(panel)),
-        "SSE firms": int(statuses["exchange"].eq("SSE").sum()),
-        "SZSE firms": int(statuses["exchange"].eq("SZSE").sum()),
+        "SSE firms": int(report_statuses["exchange"].eq("SSE").sum()),
+        "SZSE firms": int(report_statuses["exchange"].eq("SZSE").sum()),
         "current firms": int(current["firm_key"].nunique()),
         "delisted firms": int(panel.loc[~panel["delisting_date"].isna(), "firm_key"].nunique())
         if "delisting_date" in panel
         else 0,
         "complete firms": int(
-            statuses["data_status"].isin([DATA_COMPLETE, DATA_PARTIAL]).sum()
+            report_statuses["data_status"].eq(DATA_COMPLETE).sum()
         ),
-        "partial firms": int(statuses["data_status"].eq(DATA_PARTIAL).sum()),
-        "failed firms": int(statuses["data_status"].eq(DATA_FAILED).sum()),
+        "partial firms": int(report_statuses["data_status"].eq(DATA_PARTIAL).sum()),
+        "failed firms": int(report_statuses["data_status"].eq(DATA_FAILED).sum()),
         "core field coverage": {
             field: float(panel[field].notna().mean()) if len(panel) else 0.0
             for field in CORE_FIELDS

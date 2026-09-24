@@ -216,13 +216,13 @@ def test_failed_cache_is_cache_hit_but_query_failed(tmp_path):
 
 
 def test_manifest_fingerprint_uses_stable_manifest_fields():
-    target = assign_chunks(build_full_financial_target(_universe()), chunk_size=1)
+    target = assign_chunks(build_full_financial_target(_universe()), chunk_size=2)
     shuffled = target.sample(frac=1, random_state=9)
     assert manifest_fingerprint(target) == manifest_fingerprint(shuffled)
 
 
 def test_status_upsert_preserves_manifest_order_and_latest_row():
-    target = assign_chunks(build_full_financial_target(_universe()), chunk_size=1)
+    target = assign_chunks(build_full_financial_target(_universe()), chunk_size=2)
     old = pd.DataFrame([{"firm_key": "SSE:1:2020-01-01", "data_status": "QUERY_FAILED"}])
     new = pd.DataFrame([
         {"firm_key": "SSE:3:2020-01-01", "data_status": "COMPLETE"},
@@ -241,3 +241,96 @@ def test_chunk_selection_is_ordered_by_chunk_before_position():
     phase_a = target.loc[target["formal_ready"]].copy()
     ordered = phase_a.sort_values(["chunk_id", "chunk_position", "firm_key"])
     assert ordered["chunk_id"].tolist() == sorted(ordered["chunk_id"].tolist())
+
+
+def test_partial_is_not_counted_as_success():
+    frame = pd.DataFrame({"financial_success": [True, False]})
+    assert classify_data_status(frame) == "PARTIAL"
+
+
+def test_legacy_partial_status_migrates_correctly():
+    target = assign_chunks(build_full_financial_target(_universe()), chunk_size=1)
+    old = pd.DataFrame([{
+        "firm_key": "SSE:1:2020-01-01", "status": "PARTIAL",
+        "complete_firm_years": 1, "failed_firm_years": 1,
+    }])
+    result = upsert_firm_status(old, pd.DataFrame(), target)
+    assert result.iloc[0]["retrieval_status"] == "FETCHED"
+    assert result.iloc[0]["data_status"] == "PARTIAL"
+
+
+def test_legacy_query_failed_status_migrates_correctly():
+    target = assign_chunks(build_full_financial_target(_universe()), chunk_size=1)
+    old = pd.DataFrame([{
+        "firm_key": "SSE:1:2020-01-01", "status": "QUERY_FAILED",
+        "complete_firm_years": 0, "failed_firm_years": 2,
+    }])
+    result = upsert_firm_status(old, pd.DataFrame(), target)
+    assert result.iloc[0]["retrieval_status"] == "FETCHED"
+    assert result.iloc[0]["data_status"] == "QUERY_FAILED"
+
+
+def test_partial_processing_does_not_complete_chunk():
+    universe = _universe().iloc[[0]].copy()
+    extra = universe.copy()
+    extra["firm_key"] = "SSE:2:2020-01-01"
+    extra["stock_code_current"] = "000002"
+    target = assign_chunks(build_full_financial_target(pd.concat([universe, extra])), chunk_size=2)
+    statuses = pd.DataFrame([{
+        "firm_key": target.loc[target.formal_ready, "firm_key"].iloc[0],
+        "retrieval_status": "FETCHED", "data_status": "PARTIAL",
+    }])
+    chunk_is_complete = __import__(
+        "src.real_financial_full", fromlist=["chunk_is_complete"]
+    ).chunk_is_complete
+    assert not chunk_is_complete(
+        target.loc[target.formal_ready, "chunk_id"].iloc[0], target, statuses
+    )
+
+
+def test_source_blocked_preserves_rows_processed_earlier_in_same_run(monkeypatch, tmp_path):
+    base = _universe().iloc[[0]].copy()
+    second = base.copy()
+    second["firm_key"] = "SSE:2:2020-01-01"
+    second["stock_code_current"] = "000002"
+    third = base.copy()
+    third["firm_key"] = "SSE:4:2020-01-01"
+    third["stock_code_current"] = "000004"
+    universe = pd.concat([base, second, third], ignore_index=True)
+    target = assign_chunks(build_full_financial_target(universe), chunk_size=100)
+    calls = {"n": 0}
+
+    def fake_fetch(exchange, current, query, firm_key, valid_years):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise SourceBlocked("HTTP 429")
+        years = valid_years
+        return pd.DataFrame({
+            "exchange": [exchange] * len(years), "firm_key": [firm_key] * len(years),
+            "stock_code_current": ["000001"] * len(years), "year": list(years),
+            "financial_query_code": ["000001"] * len(years),
+            **{field: [1.0] * len(years) for field in (
+                "total_assets", "total_liabilities", "cash", "revenue", "net_profit",
+                "rd_expense", "employees")},
+            "financial_success": [True] * len(years), "failure_reason": [""] * len(years),
+        })
+
+    monkeypatch.setattr("src.real_financial_full.fetch_company_with_fallback", fake_fetch)
+    status_path = tmp_path / "firm_status.csv"
+    with pytest.raises(SourceBlocked):
+        run_full_fetch(
+            universe,
+            target,
+            tmp_path / "cache",
+            "SSE-SZSE-A-0001",
+            state_path=tmp_path / "state.json",
+            status_path=status_path,
+            spacing=1,
+        )
+    statuses = pd.read_csv(status_path)
+    assert set(statuses["firm_key"]) == {
+        "SSE:1:2020-01-01", "SSE:2:2020-01-01", "SSE:4:2020-01-01"
+    }
+    assert statuses.loc[
+        statuses["firm_key"].eq("SSE:1:2020-01-01"), "data_status"
+    ].iloc[0] == "COMPLETE"

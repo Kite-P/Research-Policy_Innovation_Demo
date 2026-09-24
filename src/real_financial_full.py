@@ -164,7 +164,9 @@ def _initial_state(fingerprint: str, phase: str, target_firms: int) -> dict[str,
         "target_firms": target_firms,
         "completed_firms": 0,
         "successful_firms": 0,
+        "partial_firms": 0,
         "failed_firms": 0,
+        "not_fetched_firms": 0,
         "cached_firms": 0,
         "blocked": False,
         "last_firm_key": "",
@@ -212,7 +214,11 @@ def _normalize_status_frame(frame: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     result = frame.copy()
     if "retrieval_status" not in result and "status" in result:
-        result["retrieval_status"] = result["status"].replace({"COMPLETE": RETRIEVAL_FETCHED})
+        result["retrieval_status"] = result["status"].map(
+            {"COMPLETE": RETRIEVAL_FETCHED, "PARTIAL": RETRIEVAL_FETCHED,
+             "QUERY_FAILED": RETRIEVAL_FETCHED, "CACHE_HIT": RETRIEVAL_CACHE_HIT,
+             "STALE_CACHE_REFETCHED": RETRIEVAL_STALE}
+        ).fillna(RETRIEVAL_FETCHED)
     if "data_status" not in result:
         result["data_status"] = result.apply(
             lambda row: DATA_COMPLETE if int(row.get("failed_firm_years", 0) or 0) == 0
@@ -294,10 +300,16 @@ def run_full_fetch(
             raise ValueError("UNIVERSE_FINGERPRINT_MISMATCH")
         if previous_state.get("manifest_fingerprint") not in (None, "", manifest_fp):
             raise ValueError("MANIFEST_FINGERPRINT_MISMATCH")
-        state = _initial_state(fingerprint, PHASE_A, int(manifest["formal_ready"].sum()))
+        target_count = (
+            int(len(selected)) if max_firms is not None else int(manifest["formal_ready"].sum())
+        )
+        state = _initial_state(fingerprint, PHASE_A, target_count)
         state["completed_chunks"] = previous_state.get("completed_chunks", [])
     else:
-        state = _initial_state(fingerprint, PHASE_A, int(manifest["formal_ready"].sum()))
+        target_count = (
+            int(len(selected)) if max_firms is not None else int(manifest["formal_ready"].sum())
+        )
+        state = _initial_state(fingerprint, PHASE_A, target_count)
     state["manifest_fingerprint"] = manifest_fp
     cache_dir.mkdir(parents=True, exist_ok=True)
     existing_status = (
@@ -325,7 +337,9 @@ def run_full_fetch(
             except SourceBlocked:
                 blocked = _status_row(firm, getattr(firm, "chunk_id", chunk_id), RETRIEVAL_BLOCKED,
                                       DATA_NOT_FETCHED, pd.DataFrame(), False, "SOURCE_BLOCKED")
-                merged = upsert_firm_status(existing_status, pd.DataFrame([blocked]), manifest)
+                merged = upsert_firm_status(
+                    existing_status, pd.DataFrame(rows + [blocked]), manifest
+                )
                 if status_path:
                     atomic_write_csv(status_path, merged)
                 state.update(
@@ -349,10 +363,10 @@ def run_full_fetch(
                                 data_status, frame, cache_valid))
         merged = upsert_firm_status(existing_status, pd.DataFrame(rows), manifest)
         state["completed_firms"] = int(len(merged))
-        state["successful_firms"] = int(
-            merged["data_status"].isin([DATA_COMPLETE, DATA_PARTIAL]).sum()
-        )
+        state["successful_firms"] = int(merged["data_status"].eq(DATA_COMPLETE).sum())
+        state["partial_firms"] = int(merged["data_status"].eq(DATA_PARTIAL).sum())
         state["failed_firms"] = int(merged["data_status"].eq(DATA_FAILED).sum())
+        state["not_fetched_firms"] = int(merged["data_status"].eq(DATA_NOT_FETCHED).sum())
         state["cached_firms"] = int(merged["retrieval_status"].eq(RETRIEVAL_CACHE_HIT).sum())
         state.update({"updated_at": _now(), "last_firm_key": firm.firm_key})
         if state_path:
@@ -393,6 +407,8 @@ def assemble_full_financial_panel(
             "listing_date",
             "market_listing_date",
             "delisting_date",
+            "industry_known",
+            "is_financial_industry",
         )
         if column in universe.columns
     ]
