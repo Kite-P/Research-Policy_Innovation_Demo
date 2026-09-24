@@ -26,6 +26,16 @@ UNIVERSE = ROOT / "data" / "processed" / "real_company_universe_enriched.parquet
 OUTPUT = ROOT / "results" / "real_financial_full"
 
 
+def write_canary_meta(meta_path: Path, run_number: int, status: str) -> None:
+    from src.real_financial_full import atomic_write_json
+
+    atomic_write_json(meta_path, {
+        "canary_run_count": run_number,
+        "last_run_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "last_status": status,
+    })
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--resume", action="store_true")
@@ -40,13 +50,14 @@ def main() -> int:
         raise ValueError("MANIFEST_FINGERPRINT_MISMATCH")
     selected = select_cross_exchange_canary(manifest)
     state_path = OUTPUT / "canary_cross_run_state.json"
+    meta_path = OUTPUT / "canary_cross_meta.json"
     status_path = OUTPUT / "canary_cross_firm_status.csv"
     if state_path.exists() and not args.resume:
         raise ValueError("RUN_STATE_EXISTS_USE_RESUME")
-    previous_state = (
-        json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
+    previous_meta = (
+        json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
     )
-    run_number = int(previous_state.get("canary_run_count", 0)) + 1
+    run_number = int(previous_meta.get("canary_run_count", 0)) + 1
     chunks = selected["chunk_id"].drop_duplicates().tolist()
     started = time.perf_counter()
     statuses = pd.DataFrame()
@@ -99,11 +110,13 @@ def main() -> int:
         "rd_coverage": float(panel["rd_expense"].notna().mean()),
         "blocked": int(statuses["retrieval_status"].eq("SOURCE_BLOCKED").sum()),
         "elapsed_seconds": round(time.perf_counter() - started, 2),
-        "status": "CROSS_EXCHANGE_CANARY_READY" if data_gate and second_cache_hit
-        else "CROSS_EXCHANGE_CANARY_NEEDS_FIX",
+        "status": (
+            "CROSS_EXCHANGE_CANARY_READY" if data_gate and second_cache_hit
+            else "CROSS_EXCHANGE_CANARY_FIRST_PASS" if data_gate and run_number == 1
+            else "CROSS_EXCHANGE_CANARY_NEEDS_FIX"
+        ),
     }
-    from src.real_financial_full import atomic_write_json
-    atomic_write_json(state_path, {**previous_state, "canary_run_count": run_number})
+    write_canary_meta(meta_path, run_number, report["status"])
     (OUTPUT / "canary_cross_200_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )

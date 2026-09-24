@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from scripts.finalize_phase_a_financial_panel import validate_panel_scope, validate_phase_a_complete
+from scripts.run_cross_exchange_canary import write_canary_meta
 from src.build_real_financial_panel import SourceBlocked
 from src.real_financial_full import (
     assemble_full_financial_panel,
@@ -422,3 +423,24 @@ def test_finalizer_refuses_unknown_industry():
     panel = universe.assign(industry_known=False, is_financial_industry=False)
     with pytest.raises(RuntimeError, match="PHASE_A_PANEL_SCOPE_MISMATCH"):
         validate_panel_scope(panel, universe, manifest.loc[manifest.formal_ready])
+
+
+def test_canary_meta_does_not_overwrite_run_state(tmp_path):
+    from src.real_financial_full import atomic_write_json
+
+    state_path = tmp_path / "state.json"
+    state = {"universe_fingerprint": "u", "manifest_fingerprint": "m", "completed_chunks": ["x"]}
+    atomic_write_json(state_path, state)
+    write_canary_meta(tmp_path / "meta.json", 1, "CROSS_EXCHANGE_CANARY_FIRST_PASS")
+    assert __import__("json").loads(state_path.read_text(encoding="utf-8")) == state
+
+
+def test_second_canary_resume_keeps_fingerprints(tmp_path):
+    from src.real_financial_full import atomic_write_json
+
+    state_path = tmp_path / "state.json"
+    atomic_write_json(state_path, {"universe_fingerprint": "u", "manifest_fingerprint": "m"})
+    write_canary_meta(tmp_path / "meta.json", 2, "CROSS_EXCHANGE_CANARY_READY")
+    state = __import__("json").loads(state_path.read_text(encoding="utf-8"))
+    assert state["universe_fingerprint"] == "u"
+    assert state["manifest_fingerprint"] == "m"
