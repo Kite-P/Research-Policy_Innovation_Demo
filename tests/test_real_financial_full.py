@@ -3,7 +3,7 @@ import json
 import pandas as pd
 import pytest
 
-from scripts.finalize_phase_a_financial_panel import validate_phase_a_complete
+from scripts.finalize_phase_a_financial_panel import validate_panel_scope, validate_phase_a_complete
 from src.build_real_financial_panel import SourceBlocked
 from src.real_financial_full import (
     assemble_full_financial_panel,
@@ -394,3 +394,31 @@ def test_finalizer_allows_terminal_complete_phase_a():
     statuses["retrieval_status"] = "FETCHED"
     statuses["data_status"] = "QUERY_FAILED"
     validate_phase_a_complete(manifest, statuses)
+
+
+def test_finalizer_compares_exact_firm_year_keys():
+    universe = _universe().iloc[[0]].copy()
+    manifest = assign_chunks(build_full_financial_target(universe))
+    target = manifest.loc[manifest.formal_ready]
+    panel = universe.assign(
+        industry_known=True, is_financial_industry=False,
+        financial_success=True, total_assets=1.0,
+    ).iloc[0:0]
+    with pytest.raises(RuntimeError, match="PHASE_A_PANEL_KEY_MISMATCH"):
+        validate_panel_scope(panel, universe, target)
+
+
+def test_finalizer_refuses_financial_firm():
+    universe = _universe().iloc[[0]].copy()
+    manifest = assign_chunks(build_full_financial_target(universe))
+    panel = universe.assign(industry_known=True, is_financial_industry=True)
+    with pytest.raises(RuntimeError, match="PHASE_A_PANEL_SCOPE_MISMATCH"):
+        validate_panel_scope(panel, universe, manifest.loc[manifest.formal_ready])
+
+
+def test_finalizer_refuses_unknown_industry():
+    universe = _universe().iloc[[0]].copy()
+    manifest = assign_chunks(build_full_financial_target(universe))
+    panel = universe.assign(industry_known=False, is_financial_industry=False)
+    with pytest.raises(RuntimeError, match="PHASE_A_PANEL_SCOPE_MISMATCH"):
+        validate_panel_scope(panel, universe, manifest.loc[manifest.formal_ready])

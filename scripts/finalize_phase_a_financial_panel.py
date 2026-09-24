@@ -43,6 +43,28 @@ def validate_phase_a_complete(manifest: pd.DataFrame, statuses: pd.DataFrame) ->
             raise RuntimeError("PHASE_A_NOT_COMPLETE")
 
 
+def validate_panel_scope(panel: pd.DataFrame, universe: pd.DataFrame, target: pd.DataFrame) -> None:
+    expected_frame = universe.loc[
+        universe["firm_key"].isin(target["firm_key"]), ["firm_key", "year"]
+    ]
+    expected = set(map(tuple, expected_frame.to_numpy()))
+    actual = set(map(tuple, panel[["firm_key", "year"]].to_numpy()))
+    if expected != actual or panel.duplicated(["firm_key", "year"]).any():
+        raise RuntimeError("PHASE_A_PANEL_KEY_MISMATCH")
+    listing = pd.to_datetime(panel["listing_date"], errors="coerce").dt.year
+    delisting = pd.to_datetime(panel["delisting_date"], errors="coerce").dt.year
+    illegal = (panel["year"] < listing) | (delisting.notna() & (panel["year"] > delisting))
+    if illegal.any():
+        raise RuntimeError("PHASE_A_PANEL_SCOPE_MISMATCH")
+    if set(panel["exchange"].dropna()) - {"SSE", "SZSE"}:
+        raise RuntimeError("PHASE_A_PANEL_SCOPE_MISMATCH")
+    if (
+        not panel["industry_known"].fillna(False).all()
+        or panel["is_financial_industry"].fillna(True).any()
+    ):
+        raise RuntimeError("PHASE_A_PANEL_SCOPE_MISMATCH")
+
+
 def finalize() -> dict[str, object]:
     universe = pd.read_parquet(UNIVERSE)
     manifest = pd.read_parquet(OUTPUT / "target_manifest.parquet")
@@ -50,12 +72,7 @@ def finalize() -> dict[str, object]:
     validate_phase_a_complete(manifest, statuses)
     target = manifest.loc[manifest["formal_ready"]].copy()
     panel = assemble_full_financial_panel(universe, OUTPUT / "cache", manifest)
-    if panel["firm_key"].nunique() != target["firm_key"].nunique() or len(panel) != len(
-        universe[universe["firm_key"].isin(target["firm_key"])]
-    ):
-        raise RuntimeError("PHASE_A_PANEL_KEY_MISMATCH")
-    if panel.duplicated(["firm_key", "year"]).any():
-        raise RuntimeError("PHASE_A_PANEL_KEY_MISMATCH")
+    validate_panel_scope(panel, universe, target)
     processed = ROOT / "data" / "processed"
     processed.mkdir(parents=True, exist_ok=True)
     panel.to_parquet(processed / "real_financials_sse_szse_nonfinancial.parquet", index=False)

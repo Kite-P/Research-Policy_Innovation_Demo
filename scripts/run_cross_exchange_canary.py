@@ -43,6 +43,10 @@ def main() -> int:
     status_path = OUTPUT / "canary_cross_firm_status.csv"
     if state_path.exists() and not args.resume:
         raise ValueError("RUN_STATE_EXISTS_USE_RESUME")
+    previous_state = (
+        json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
+    )
+    run_number = int(previous_state.get("canary_run_count", 0)) + 1
     chunks = selected["chunk_id"].drop_duplicates().tolist()
     started = time.perf_counter()
     statuses = pd.DataFrame()
@@ -64,27 +68,47 @@ def main() -> int:
     dta = OUTPUT / "canary_cross_200.dta"
     _stata_ready(panel).to_stata(dta, write_index=False, version=118)
     current = panel.loc[panel["delisting_date"].isna()]
+    listing = pd.to_datetime(panel["listing_date"], errors="coerce").dt.year
+    delisting = pd.to_datetime(panel["delisting_date"], errors="coerce").dt.year
+    illegal = int(
+        ((panel["year"] < listing) | (delisting.notna() & (panel["year"] > delisting))).sum()
+    )
+    current_core = current.groupby("exchange")["financial_success"].mean().to_dict()
+    second_cache_hit = run_number >= 2 and bool(
+        statuses["retrieval_status"].eq(RETRIEVAL_CACHE_HIT).all()
+    )
+    data_gate = (
+        len(statuses) == 200
+        and statuses["exchange"].value_counts().to_dict() == {"SSE": 100, "SZSE": 100}
+        and int(panel.duplicated(["firm_key", "year"]).sum()) == 0
+        and illegal == 0
+        and int(statuses["retrieval_status"].eq("SOURCE_BLOCKED").sum()) == 0
+        and all(float(current_core.get(exchange, 0)) >= 0.90 for exchange in ("SSE", "SZSE"))
+    )
     report = {
         "firms": int(len(statuses)), "firm_years": int(len(panel)),
         "SSE firms": int(statuses["exchange"].eq("SSE").sum()),
         "SZSE firms": int(statuses["exchange"].eq("SZSE").sum()),
-        "second_run_cache_hit": bool(statuses["retrieval_status"].eq(RETRIEVAL_CACHE_HIT).all()),
+        "run_number": run_number,
+        "second_run_cache_hit": second_cache_hit,
         "network_requests": int((~statuses["retrieval_status"].eq(RETRIEVAL_CACHE_HIT)).sum()),
         "duplicate_firm_year": int(panel.duplicated(["firm_key", "year"]).sum()),
-        "current_core_by_exchange": current.groupby("exchange")["financial_success"]
-        .mean()
-        .to_dict(),
+        "current_core_by_exchange": current_core,
+        "illegal_firm_year": illegal,
         "core_coverage": {field: float(panel[field].notna().mean()) for field in CORE_FIELDS},
         "rd_coverage": float(panel["rd_expense"].notna().mean()),
         "blocked": int(statuses["retrieval_status"].eq("SOURCE_BLOCKED").sum()),
         "elapsed_seconds": round(time.perf_counter() - started, 2),
-        "status": "CROSS_EXCHANGE_CANARY_READY",
+        "status": "CROSS_EXCHANGE_CANARY_READY" if data_gate and second_cache_hit
+        else "CROSS_EXCHANGE_CANARY_NEEDS_FIX",
     }
+    from src.real_financial_full import atomic_write_json
+    atomic_write_json(state_path, {**previous_state, "canary_run_count": run_number})
     (OUTPUT / "canary_cross_200_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0
+    return 0 if report["status"] == "CROSS_EXCHANGE_CANARY_READY" else (0 if run_number == 1 else 1)
 
 
 if __name__ == "__main__":
