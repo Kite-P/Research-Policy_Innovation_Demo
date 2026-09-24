@@ -11,7 +11,7 @@ foreach v in total_assets total_liabilities cash revenue net_profit employees rd
     if _rc != 0 exit 459
 }
 foreach v in size_ln leverage roa cash_ratio employee_ln rd_intensity {
-    assert !missing(`v') | missing(`v')
+    assert missing(`v') | abs(`v') < 1e100
 }
 quietly count
 local firm_years = r(N)
