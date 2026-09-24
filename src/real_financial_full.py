@@ -121,6 +121,24 @@ def assign_chunks(manifest: pd.DataFrame, chunk_size: int = 100) -> pd.DataFrame
     return result
 
 
+def select_cross_exchange_canary(manifest: pd.DataFrame) -> pd.DataFrame:
+    """Select the first complete pure 100-firm SSE and SZSE chunks."""
+    eligible = manifest.loc[manifest["formal_ready"]].copy()
+    groups = eligible.groupby(["chunk_id", "exchange"], sort=True)
+    selected_chunks: list[str] = []
+    for exchange in ("SSE", "SZSE"):
+        candidates = []
+        for (chunk_id, group_exchange), group in groups:
+            if group_exchange == exchange and len(group) == 100:
+                candidates.append(chunk_id)
+        if not candidates:
+            raise ValueError(f"NO_COMPLETE_PURE_100_CHUNK:{exchange}")
+        selected_chunks.append(sorted(candidates)[0])
+    return eligible.loc[eligible["chunk_id"].isin(selected_chunks)].sort_values(
+        ["chunk_id", "chunk_position", "firm_key"]
+    ).reset_index(drop=True)
+
+
 def classify_data_status(frame: pd.DataFrame) -> str:
     success = frame.get("financial_success", pd.Series(False, index=frame.index)).fillna(False)
     if len(success) == 0 or not bool(success.any()):

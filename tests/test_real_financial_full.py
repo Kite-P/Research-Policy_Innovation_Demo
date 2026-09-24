@@ -3,6 +3,7 @@ import json
 import pandas as pd
 import pytest
 
+from scripts.finalize_phase_a_financial_panel import validate_phase_a_complete
 from src.build_real_financial_panel import SourceBlocked
 from src.real_financial_full import (
     assemble_full_financial_panel,
@@ -12,6 +13,7 @@ from src.real_financial_full import (
     classify_data_status,
     manifest_fingerprint,
     run_full_fetch,
+    select_cross_exchange_canary,
     universe_fingerprint,
     upsert_firm_status,
 )
@@ -37,6 +39,19 @@ def _universe():
             "year": [2020, 2021, 2021, 2022, 2020],
         }
     )
+
+
+def _cross_manifest():
+    base = _universe().iloc[[0]].copy()
+    rows = []
+    for exchange, prefix in (("SSE", "1"), ("SZSE", "2")):
+        for index in range(100):
+            row = base.copy()
+            row["firm_key"] = f"{exchange}:{prefix}{index:05d}:2020-01-01"
+            row["exchange"] = exchange
+            row["stock_code_current"] = f"{index + 1:06d}"
+            rows.append(row)
+    return assign_chunks(build_full_financial_target(pd.concat(rows, ignore_index=True)))
 
 
 def test_full_target_excludes_financial_firms_from_fetch():
@@ -334,3 +349,48 @@ def test_source_blocked_preserves_rows_processed_earlier_in_same_run(monkeypatch
     assert statuses.loc[
         statuses["firm_key"].eq("SSE:1:2020-01-01"), "data_status"
     ].iloc[0] == "COMPLETE"
+
+
+def test_cross_exchange_canary_has_100_sse_100_szse():
+    selected = select_cross_exchange_canary(_cross_manifest())
+    assert selected["exchange"].value_counts().to_dict() == {"SSE": 100, "SZSE": 100}
+
+
+def test_cross_exchange_canary_uses_complete_chunks():
+    selected = select_cross_exchange_canary(_cross_manifest())
+    assert selected.groupby(["chunk_id", "exchange"]).size().eq(100).all()
+
+
+def test_cross_exchange_canary_is_deterministic():
+    target = _cross_manifest()
+    assert select_cross_exchange_canary(target).equals(
+        select_cross_exchange_canary(target.sample(frac=1))
+    )
+
+
+def test_finalizer_refuses_incomplete_phase_a():
+    manifest = _cross_manifest()
+    statuses = pd.DataFrame([{
+        "firm_key": manifest.loc[manifest.formal_ready, "firm_key"].iloc[0],
+        "retrieval_status": "FETCHED", "data_status": "COMPLETE",
+    }])
+    with pytest.raises(RuntimeError, match="PHASE_A_NOT_COMPLETE"):
+        validate_phase_a_complete(manifest, statuses)
+
+
+def test_finalizer_refuses_source_blocked_phase_a():
+    manifest = _cross_manifest()
+    statuses = manifest.loc[manifest.formal_ready, ["firm_key", "chunk_id"]].copy()
+    statuses["retrieval_status"] = "FETCHED"
+    statuses["data_status"] = "COMPLETE"
+    statuses.loc[0, "retrieval_status"] = "SOURCE_BLOCKED"
+    with pytest.raises(RuntimeError, match="PHASE_A_NOT_COMPLETE"):
+        validate_phase_a_complete(manifest, statuses)
+
+
+def test_finalizer_allows_terminal_complete_phase_a():
+    manifest = _cross_manifest()
+    statuses = manifest.loc[manifest.formal_ready, ["firm_key", "chunk_id"]].copy()
+    statuses["retrieval_status"] = "FETCHED"
+    statuses["data_status"] = "QUERY_FAILED"
+    validate_phase_a_complete(manifest, statuses)

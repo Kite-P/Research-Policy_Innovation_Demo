@@ -11,18 +11,51 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.build_real_financial_panel import CORE_FIELDS, _stata_ready  # noqa: E402
-from src.real_financial_full import assemble_full_financial_panel  # noqa: E402
+from src.real_financial_full import (  # noqa: E402
+    DATA_COMPLETE,
+    DATA_FAILED,
+    DATA_PARTIAL,
+    RETRIEVAL_BLOCKED,
+    assemble_full_financial_panel,
+    chunk_is_complete,
+)
 
 UNIVERSE = ROOT / "data" / "processed" / "real_company_universe_enriched.parquet"
 OUTPUT = ROOT / "results" / "real_financial_full"
+
+
+def validate_phase_a_complete(manifest: pd.DataFrame, statuses: pd.DataFrame) -> None:
+    target = manifest.loc[manifest["formal_ready"]]
+    if statuses is None or statuses.empty:
+        raise RuntimeError("PHASE_A_NOT_COMPLETE")
+    current = statuses.drop_duplicates("firm_key", keep="last")
+    expected = set(target["firm_key"])
+    actual = set(current["firm_key"])
+    if expected != actual:
+        raise RuntimeError("PHASE_A_NOT_COMPLETE")
+    terminal = {DATA_COMPLETE, DATA_PARTIAL, DATA_FAILED}
+    if not current["data_status"].isin(terminal).all():
+        raise RuntimeError("PHASE_A_NOT_COMPLETE")
+    if current["retrieval_status"].eq(RETRIEVAL_BLOCKED).any():
+        raise RuntimeError("PHASE_A_NOT_COMPLETE")
+    for chunk_id in target["chunk_id"].drop_duplicates():
+        if not chunk_is_complete(chunk_id, manifest, current):
+            raise RuntimeError("PHASE_A_NOT_COMPLETE")
 
 
 def finalize() -> dict[str, object]:
     universe = pd.read_parquet(UNIVERSE)
     manifest = pd.read_parquet(OUTPUT / "target_manifest.parquet")
     statuses = pd.read_csv(OUTPUT / "firm_status.csv")
+    validate_phase_a_complete(manifest, statuses)
     target = manifest.loc[manifest["formal_ready"]].copy()
     panel = assemble_full_financial_panel(universe, OUTPUT / "cache", manifest)
+    if panel["firm_key"].nunique() != target["firm_key"].nunique() or len(panel) != len(
+        universe[universe["firm_key"].isin(target["firm_key"])]
+    ):
+        raise RuntimeError("PHASE_A_PANEL_KEY_MISMATCH")
+    if panel.duplicated(["firm_key", "year"]).any():
+        raise RuntimeError("PHASE_A_PANEL_KEY_MISMATCH")
     processed = ROOT / "data" / "processed"
     processed.mkdir(parents=True, exist_ok=True)
     panel.to_parquet(processed / "real_financials_sse_szse_nonfinancial.parquet", index=False)
