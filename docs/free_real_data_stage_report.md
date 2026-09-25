@@ -114,13 +114,10 @@
 
 ## 4.3F-Full-Pipeline 真实财务全量抓取流水线
 
-- 已建立 5,690 家总体对应的正式财务目标清单、53 个确定性分块、firm_key 缓存、原子运行状态和失败停止机制。
-- 正式目标包含 5,272 家 SSE/SZSE 非金融企业、28,548 个 firm-year；BSE 非金融企业继续保留为 `BSE_MAPPING_REQUIRED`，金融企业保留为 `excluded_financial`。
-- 200 家 SSE/SZSE canary 已实际运行：200 家、1,114 个 firm-year；SSE 92 家、SZSE 108 家；当前企业 191 家、退市企业 9 家。
-- 首轮 9 家退市企业出现 37 个 `QUERY_FAILED` firm-year；当前 SSE/SZSE 核心完整率均为 100%，未发生来源阻断。
-- 核心字段总体覆盖率为 96.6786%，R&D 覆盖率为 88.4201%；第二次运行 200/200 缓存命中且未重新请求接口。
-- Stata canary 实际校验通过，sentinel 为 `FINANCIAL_FULL_CANARY_VALIDATION_PASS`。
+- Phase A 正式完成：5,272 家 SSE/SZSE 非金融企业、28,548 个 firm-year，53/53 个 chunk 完成。来源总体为 5,690 家、30,328 个 firm-year；BSE 和金融业企业不属于 Phase A。
+- 状态计数：5,008 `COMPLETE`、4 `PARTIAL`、260 `QUERY_FAILED`；`NOT_FETCHED=0`、`SOURCE_BLOCKED=0`。目标企业均保留，未按抓取结果删样本。
+- Finalizer 核验正式面板 5,272 家、28,548 行，重复键 0、非法上市/退市边界 firm-year 0，交易所仅 SSE/SZSE。Stata/MP 18 实际验证通过 firm-year 唯一性、年份、交易所、变量类型及派生变量有限值检查，sentinel 为 `FINANCIAL_SSE_SZSE_FULL_VALIDATION_PASS`。
+- 当前企业核心字段完整率：SSE 99.1688%，SZSE 99.4936%；当前企业 R&D 覆盖率分别为 92.3531% 和 95.4295%。核心质量 Gate 通过。完整面板核心字段缺失数见 `docs/full_financial_fetch_pipeline.md`。
+- BSE 状态仍为 `BSE_MAPPING_REQUIRED`，等待合法取得的官方新旧代码映射；132 家金融业企业保持排除。CNIPA、政策匹配和回归未执行。
 
-当前阶段状态：`FULL_FETCH_PIPELINE_READY`。
-
-全量财务抓取状态：`NOT_EXECUTED`。本轮未启动 5,690 家正式抓取、BSE 查询、政策匹配、专利收集或回归。
+当前状态：`SSE_SZSE_FULL_FETCH_COMPLETE`。早期 200 家 canary 仅作为链路验证历史，不替代正式 Phase A 结果。

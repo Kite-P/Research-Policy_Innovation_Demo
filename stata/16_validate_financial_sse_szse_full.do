@@ -13,6 +13,10 @@ foreach v in total_assets total_liabilities cash revenue net_profit employees rd
 foreach v in size_ln leverage roa cash_ratio employee_ln rd_intensity {
     assert missing(`v') | abs(`v') < 1e100
 }
+foreach v in total_assets total_liabilities cash revenue net_profit employees {
+    quietly count if missing(`v')
+    display "CORE_MISSING_`v'=" r(N)
+}
 quietly count
 local firm_years = r(N)
 quietly egen tag_firm = tag(firm_key)

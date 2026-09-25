@@ -29,7 +29,7 @@ free_patent_source,CNIPA official patent data,pending_user_registration,Formal c
 patent_entity_scope,listed_entity_only,frozen_for_primary,Use listed legal entity and verified historical legal names; do not add subsidiaries or aliases automatically
 real_company_universe_status,PROFILE_AND_SSE_SZSE_FINANCIAL_GATE_PASS,frozen_for_phase,"5,690 firms and 30,328 firm-years; Profile gate passes and both SSE/SZSE current nonfinancial financial gates pass"
 bse_mapping_status,OFFICIAL_FILE_REQUIRED,pending_user_registration,Use the official BSE old/new code table as a local input; never infer old codes by prefix replacement
-full_financial_pipeline_status,FULL_FETCH_PIPELINE_READY,canary_audit_complete,Formal SSE/SZSE nonfinancial pipeline and 200-firm canary passed; full fetch not started
-full_financial_fetch_status,NOT_EXECUTED,frozen_for_current_round,The 5690-firm financial fetch has not been started
+full_financial_pipeline_status,SSE_SZSE_FULL_FETCH_COMPLETE,phase_a_complete,53 chunks completed for 5272 SSE/SZSE nonfinancial firms and 28548 firm-years; final panel and Stata validation passed
+full_financial_fetch_status,SSE_SZSE_FULL_FETCH_COMPLETE,complete_for_sse_szse_phase,Phase A has 5008 COMPLETE 4 PARTIAL and 260 QUERY_FAILED firms with no NOT_FETCHED or SOURCE_BLOCKED firms; Stata full validation passed
 full_financial_canary,200_firms_1114_firm_years,canary_audit_complete,Current SSE/SZSE core completeness is 100 percent by exchange; second pass cache hit 200 of 200
 full_financial_bse_status,BSE_MAPPING_REQUIRED,pending_official_mapping,BSE remains outside the formal fetch phase until the official old/new code table is supplied
