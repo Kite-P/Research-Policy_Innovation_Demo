@@ -1,0 +1,25 @@
+field,description,allowed_values_or_rule
+firm_key,Stable enterprise identifier,Existing Phase A firm_key
+exchange,Listing exchange,SSE or SZSE
+stock_code_current,Current official security code,Zero-padded six-digit code
+company_name_legal,Legal company name,Source universe value
+year,Firm-year,2020-2025 and within listing period
+province_raw,Raw registered-address text,Official annual report field
+province_historical,Primary historical province,Nonmissing only for historical_confirmed or historical_inferred
+province_status,Historical evidence status,historical_confirmed|historical_inferred|static_fallback_only|missing
+province_source_tier,Source hierarchy,H1|H2|H3|S
+province_source_name,Human-readable source name,Source-specific
+province_source_year,Annual report year or event report year,Four-digit year
+province_effective_date,Effective date for dated change inference,ISO-8601 date or missing
+province_static_current,Current-profile province,Audit-only fallback
+province_static_agrees,Static profile equals primary province,True|False|missing
+province_conflict,Unresolved source conflict,Boolean
+province_missing_reason,Why primary historical province is unavailable,Controlled reason or missing
+source_type,Source document type,Official annual report or dated change record
+source_url_or_id,Public source URL or document identifier,Provenance locator
+source_report_date,Source report publication date,ISO-8601 date or missing
+extraction_method,Text extraction method,Deterministic text-layer extraction
+fallback_level,Fallback tier used,None|S
+evidence_quality,Evidence quality label,Explicit source tier and temporal evidence
+inference_rule,Rule used for dated event inference,Effective date relative to December 31 year-end
+retrieved_at,Retrieval timestamp,UTC ISO-8601
