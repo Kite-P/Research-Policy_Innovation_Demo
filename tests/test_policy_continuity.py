@@ -3,11 +3,30 @@ import pandas as pd
 import pytest
 
 from src.policy_continuity import (
+    PROVINCE_KEYS,
     build_policy_metrics,
     cosine_similarity,
     normalize_vectorization_text,
     tfidf_matrix,
 )
+
+
+def test_national_policy_mapping_has_all_31_mainland_provinces():
+    expected = {
+        "北京市": "beijing", "天津市": "tianjin", "河北省": "hebei",
+        "山西省": "shanxi", "内蒙古自治区": "inner_mongolia", "辽宁省": "liaoning",
+        "吉林省": "jilin", "黑龙江省": "heilongjiang", "上海市": "shanghai",
+        "江苏省": "jiangsu", "浙江省": "zhejiang", "安徽省": "anhui",
+        "福建省": "fujian", "江西省": "jiangxi", "山东省": "shandong",
+        "河南省": "henan", "湖北省": "hubei", "湖南省": "hunan",
+        "广东省": "guangdong", "广西壮族自治区": "guangxi", "海南省": "hainan",
+        "重庆市": "chongqing", "四川省": "sichuan", "贵州省": "guizhou",
+        "云南省": "yunnan", "西藏自治区": "tibet", "陕西省": "shaanxi",
+        "甘肃省": "gansu", "青海省": "qinghai", "宁夏回族自治区": "ningxia",
+        "新疆维吾尔自治区": "xinjiang",
+    }
+    assert PROVINCE_KEYS == expected
+    assert "香港特别行政区" not in PROVINCE_KEYS
 
 
 def test_identical_and_disjoint_cosine_bounds():
@@ -92,3 +111,52 @@ def test_expanding_metric_is_insensitive_to_future_text_changes():
     left = original.loc[original.year <= 2024, "policy_continuity_tfidf_expanding"]
     right = changed_metrics.loc[changed_metrics.year <= 2024, "policy_continuity_tfidf_expanding"]
     assert np.allclose(left.fillna(-1), right.fillna(-1))
+
+
+def test_national_metrics_have_217_cells_186_pairs_and_source_pair_fields():
+    provinces = list(PROVINCE_KEYS.items())
+    clean_rows = []
+    source_rows = []
+    for province_index, (province, province_key) in enumerate(provinces):
+        for year in range(2019, 2026):
+            policy_id = f"{province_key}_{year}"
+            text = f"{province}产业创新制造业数字经济绿色发展共同基础{year}"
+            clean_rows.append(
+                {
+                    "policy_id": policy_id,
+                    "province": province,
+                    "report_year": year,
+                    "industry_text_clean": text,
+                    "full_text_clean": text,
+                    "full_text_chars": len(text) + 100,
+                    "industry_text_chars": len(text),
+                    "industry_text_share": len(text) / (len(text) + 100),
+                    "keyword_hits_total": 4,
+                }
+            )
+            source_rows.append(
+                {"policy_id": policy_id, "source_tier": 1 + (province_index + year) % 4}
+            )
+
+    keywords = pd.DataFrame(
+        {
+            "term": ["产业创新", "制造业", "数字经济", "绿色发展"],
+            "category": ["innovation", "manufacturing", "digital", "green"],
+            "tier": ["core"] * 4,
+        }
+    )
+    metrics = build_policy_metrics(
+        pd.DataFrame(clean_rows), keywords, pd.DataFrame(source_rows)
+    )
+
+    assert len(metrics) == 217
+    assert metrics[["province", "year"]].drop_duplicates().shape[0] == 217
+    assert metrics["province"].nunique() == 31
+    assert metrics.loc[metrics.year == 2019, "policy_continuity_tfidf"].isna().sum() == 31
+    primary = metrics.loc[metrics.year.between(2020, 2025), "policy_continuity_tfidf"]
+    assert primary.notna().sum() == 186
+    assert primary.between(0, 1).all()
+    assert np.isfinite(primary).all()
+    assert metrics.loc[metrics.year == 2019, "source_tier_previous"].isna().all()
+    assert metrics.loc[metrics.year.between(2020, 2025), "source_tier_max"].between(1, 4).all()
+    assert metrics.loc[metrics.year.between(2020, 2025), "both_direct_official"].isin([0, 1]).all()

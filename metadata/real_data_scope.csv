@@ -38,4 +38,4 @@ historical_province_policy_geography,31 mainland provincial-level regions plus H
 full_financial_canary,200_firms_1114_firm_years,canary_audit_complete,Current SSE/SZSE core completeness is 100 percent by exchange; second pass cache hit 200 of 200
 full_financial_bse_status,BSE_MAPPING_REQUIRED,pending_official_mapping,BSE remains outside the formal fetch phase until the official old/new code table is supplied
 national_policy_corpus_status,NATIONAL_POLICY_CORPUS_COMPLETE,complete_for_31_mainland_regions,"217 unique province-year reports for 31 mainland regions in 2019-2025 passed content validation; legacy 49 raw hashes and cleaned text outputs are unchanged"
-national_policy_metric_status,NOT_STARTED,pending_metrics_stage,"National continuity metrics will be constructed after corpus completion; no formal enterprise policy merge or regression"
+national_policy_metric_status,NATIONAL_POLICY_METRICS_COMPLETE,complete_for_31_mainland_regions,"217 province-year metrics for 31 mainland regions in 2019-2025; 186 valid adjacent-year pairs; Stata/MP 18 validation passed; no formal enterprise policy merge or regression"
