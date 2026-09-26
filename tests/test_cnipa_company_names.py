@@ -11,3 +11,14 @@ def test_normalize_company_names_is_unique_and_sorted():
         "乙有限公司",
         "甲有限公司",
     ]
+
+
+def test_normalize_company_name_nfkc_preserves_legal_suffix_and_entity_words():
+    assert normalize_company_name("  甲（集团）股份有限公司　") == "甲(集团)股份有限公司"
+    assert normalize_company_name("甲股份有限公司") != normalize_company_name("甲有限公司")
+
+
+def test_normalize_company_name_treats_missing_scalars_as_empty():
+    import pandas as pd
+
+    assert normalize_company_name(pd.NA) == ""

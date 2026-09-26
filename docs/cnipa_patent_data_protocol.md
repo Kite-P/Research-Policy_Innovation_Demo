@@ -26,6 +26,14 @@
 
 系统提供时一并保存申请人邮编。无需下载 PDF 全文。
 
+## Entity-name preflight
+
+CNIPA 查询名称只来自已核验的当前法人全称和有正式来源支持的历史法人全称。EastMoney F10 `ORG_NAME` 作为当前法人名称来源；`FORMERNAME` 只作为候选，按观察到的 `→` 分隔解析后仍须逐名核验。股票简称、曾用股票简称、子公司、模糊别名及未决候选均不得进入查询。缺少历史名称证据不删除目标企业。
+
+当前名称预检报告见 `docs/cnipa_entity_name_audit.md`。企业级名称证据、碰撞表和查询批次保留在本地 ignored 输出。即使查询名存在多 firm-key 映射，也只记录碰撞，不自动合并或分配专利结果。未确认历史名称有效期时保留 `temporal_match_uncertain`，不能静默跨期匹配。
+
+每批最多 20 个名称、最多 1,500 字符仍是项目暂定参数，不是已确认的 CNIPA 官方网页限制；须在合法访问后实际核验。名称批次预检不等于 CNIPA 查询或专利数据采集。
+
 ## Local parser output
 
 `read_cnipa_export` 支持 XLSX 和 XML，并标准化为：
