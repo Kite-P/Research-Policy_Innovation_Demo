@@ -86,11 +86,25 @@ def province_from_address(address: object) -> str | None:
         return None
     text = re.sub(r"\s+", "", str(address)).lstrip("“”‘’\"'")
     text = re.sub(r"^中国", "", text).lstrip("（(")
-    for name, province in sorted(PROVINCE_ALIASES.items(), key=lambda item: -len(item[0])):
+    multi_character_provinces = {
+        name: province for name, province in PROVINCE_ALIASES.items() if len(name) > 1
+    }
+    for name, province in sorted(
+        multi_character_provinces.items(), key=lambda item: -len(item[0])
+    ):
         if text.startswith(name):
             return province
-    for city, province in sorted(CITY_TO_PROVINCE.items(), key=lambda item: -len(item[0])):
-        if city in text[:24]:
+    city_aliases = {
+        alias: province
+        for city, province in CITY_TO_PROVINCE.items()
+        for alias in (city, city.removesuffix("市"))
+        if alias
+    }
+    for city, province in sorted(city_aliases.items(), key=lambda item: -len(item[0])):
+        if text.startswith(city):
+            return province
+    for name, province in PROVINCE_ALIASES.items():
+        if len(name) == 1 and text.startswith(name):
             return province
     return None
 
@@ -589,3 +603,54 @@ def evaluate_historical_province_pilot_gate(
         "HISTORICAL_PROVINCE_PILOT_PASS" if passed else "HISTORICAL_PROVINCE_SOURCE_NEEDS_FIX",
         gate,
     )
+
+
+def evaluate_historical_province_full_gate(
+    panel: pd.DataFrame,
+    target: pd.DataFrame,
+    minimum_coverage: float = 0.90,
+    maximum_conflict_rate: float = 0.01,
+) -> tuple[str, dict[str, object]]:
+    """Evaluate full-sample coverage and integrity independently of the pilot."""
+    coverage = summarize_historical_province_coverage(panel).set_index("stratum")
+    current_sse = float(coverage.loc["SSE_current", "historical_coverage"])
+    current_szse = float(coverage.loc["SZSE_current", "historical_coverage"])
+    duplicate_keys = int(panel.duplicated(["firm_key", "year"]).sum())
+    illegal_mask = ~panel["exchange"].isin(["SSE", "SZSE"]) | ~panel["year"].between(
+        2020, 2025
+    )
+    illegal_firm_years = int(illegal_mask.sum())
+    target_keys = set(zip(target["firm_key"], target["year"]))
+    panel_keys = set(zip(panel["firm_key"], panel["year"]))
+    conflict_rate = float(panel["province_conflict"].mean()) if len(panel) else 0.0
+    fallback = panel["province_status"].isin({"static_fallback_only", "missing"})
+    static_primary_violations = int(
+        (fallback & panel["province_historical"].notna()).sum()
+    )
+    gate = {
+        "SSE_current_coverage": current_sse,
+        "SZSE_current_coverage": current_szse,
+        "minimum_coverage": float(minimum_coverage),
+        "exact_key_match": panel_keys == target_keys and len(panel) == len(target),
+        "duplicate_keys": duplicate_keys,
+        "illegal_firm_years": illegal_firm_years,
+        "unresolved_conflicts": int(panel["province_conflict"].sum()),
+        "conflict_rate": conflict_rate,
+        "maximum_conflict_rate": float(maximum_conflict_rate),
+        "static_primary_violations": static_primary_violations,
+    }
+    passed = (
+        current_sse >= minimum_coverage
+        and current_szse >= minimum_coverage
+        and gate["exact_key_match"]
+        and duplicate_keys == 0
+        and illegal_firm_years == 0
+        and conflict_rate <= maximum_conflict_rate
+        and static_primary_violations == 0
+    )
+    status = (
+        "HISTORICAL_PROVINCE_RESEARCH_GATE_PASS"
+        if passed
+        else "HISTORICAL_PROVINCE_COVERAGE_REVIEW_REQUIRED"
+    )
+    return status, gate

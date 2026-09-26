@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 from src.historical_province import (  # noqa: E402
     assign_historical_province_chunks,
     build_historical_province_target,
+    evaluate_historical_province_full_gate,
     province_from_address,
     resolve_historical_province_panel,
     summarize_historical_province_coverage,
@@ -275,8 +276,11 @@ def run(args: argparse.Namespace) -> int:
             "existing_policy_corpus_available": province in policy_provinces,
         })
     _write_csv_atomic(pd.DataFrame(policy_rows), OUTPUT / "policy_geography_coverage.csv")
+    gate_status, gate = evaluate_historical_province_full_gate(panel, target)
+    _atomic_json(OUTPUT / "full_gate.json", {"status": gate_status, "gate": gate})
     save_state(
-        "HISTORICAL_PROVINCE_FULL_FETCH_COMPLETE",
+        gate_status,
+        engineering_status="HISTORICAL_PROVINCE_FULL_FETCH_COMPLETE",
         completed_chunks=sorted(completed_chunks),
         final_firms=int(panel.firm_key.nunique()),
         final_firm_years=len(panel),
@@ -284,7 +288,7 @@ def run(args: argparse.Namespace) -> int:
         source_records=len(source_records),
         unresolved_conflicts=len(conflicts),
     )
-    print("HISTORICAL_PROVINCE_FULL_FETCH_COMPLETE", flush=True)
+    print(gate_status, flush=True)
     print(coverage.to_string(index=False), flush=True)
     return 0
 

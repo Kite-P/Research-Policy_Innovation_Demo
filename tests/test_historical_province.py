@@ -11,6 +11,7 @@ from src.historical_province import (
     build_policy_geography_coverage,
     choose_preferred_candidate,
     classify_static_profile,
+    evaluate_historical_province_full_gate,
     evaluate_historical_province_pilot_gate,
     infer_province_for_year,
     normalize_province,
@@ -26,6 +27,7 @@ from src.historical_province_sources import (
     classify_source_response,
     extract_registered_address,
     extract_registered_address_history,
+    match_annual_report_title,
     parse_address_change_events,
 )
 
@@ -108,6 +110,18 @@ def test_normalize_province_aliases(raw, expected):
 )
 def test_address_normalization_uses_explicit_municipality_and_city_maps(address, expected):
     assert province_from_address(address) == expected
+
+
+def test_address_normalization_accepts_explicit_city_names_without_city_suffix():
+    assert province_from_address("南京经济技术开发区恒通大道2号") == "江苏省"
+    assert province_from_address("哈尔滨经开区哈平路集中区") == "黑龙江省"
+
+
+def test_city_names_take_precedence_over_conflicting_single_character_province_aliases():
+    assert province_from_address("青岛市崂山区松岭路131号") == "山东省"
+    assert province_from_address("宁波市鄞州区日丽中路777号") == "浙江省"
+    assert province_from_address("青海省西宁市城西区") == "青海省"
+    assert province_from_address("宁夏回族自治区银川市") == "宁夏回族自治区"
 
 
 def test_unknown_address_is_not_guessed():
@@ -222,6 +236,180 @@ def test_annual_report_address_field_does_not_confuse_history_or_office_address(
     assert extract_registered_address(text) == "北京市海淀区海淀南路21号四层"
 
 
+def test_wrapped_registered_address_uses_value_split_across_adjacent_lines():
+    text = """
+中国（上海）自由贸易试验区银冬路20弄8号地下1层、地下2层
+公司注册地址
+、地下3层、2层、3层、4层、5层
+公司注册地址的历史变更情况 无
+办公地址 上海市浦东新区其他道路1号
+"""
+
+    assert extract_registered_address(text) == (
+        "中国（上海）自由贸易试验区银冬路20弄8号地下1层、地下2层、地下3层、2层、3层、4层、5层"
+    )
+
+
+def test_office_address_is_not_used_when_registered_address_label_is_absent():
+    text = "办公地址 上海市浦东新区世纪大道1号\n公司主要经营地点 上海市浦东新区世纪大道2号"
+
+    assert extract_registered_address(text) is None
+
+
+@pytest.mark.parametrize(
+    "label",
+    ["公司注册地", "法定注册地址", "住所", "公司住所"],
+)
+def test_alternate_explicit_registered_address_labels_are_supported(label):
+    assert extract_registered_address(f"{label}：南京经济技术开发区恒通大道2号") == (
+        "南京经济技术开发区恒通大道2号"
+    )
+
+
+@pytest.mark.parametrize(
+    ("title", "expected_year"),
+    [
+        ("兰花科创2025年度报告", 2025),
+        ("南方航空2025年年度报告", 2025),
+        ("2023年度报告全文（修订版）", 2023),
+        ("2023 年年度报告（更正后）", 2023),
+    ],
+)
+def test_report_title_matcher_accepts_observed_annual_report_variants(title, expected_year):
+    assert match_annual_report_title(title) == expected_year
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "兰花科创2025年度报告摘要",
+        "2024年度报告摘要",
+        "2023年度报告提示性公告",
+        "2023年半年度报告",
+    ],
+)
+def test_report_title_matcher_rejects_summaries_and_non_annual_reports(title):
+    assert match_annual_report_title(title) is None
+
+
+def test_cninfo_query_audit_counts_legacy_rejections_and_keeps_full_reports():
+    class Response:
+        def json(self):
+            return {
+                "totalpages": 0,
+                "announcements": [
+                    {"announcementTitle": "兰花科创2025年度报告", "announcementId": "a",
+                     "announcementTime": 10, "adjunctUrl": "2025.pdf"},
+                    {"announcementTitle": "兰花科创2025年度报告摘要", "announcementId": "b",
+                     "announcementTime": 9, "adjunctUrl": "summary.pdf"},
+                    {"announcementTitle": "2023年年度报告全文（修订版）", "announcementId": "c",
+                     "announcementTime": 8, "adjunctUrl": "2023.pdf"},
+                ],
+            }
+
+    class StubClient(CNINFOAnnualReportClient):
+        def stock_catalog(self):
+            return {"600000": "org-test"}
+
+        def _request(self, *args, **kwargs):
+            return Response()
+
+    client = StubClient(Path("unused"), sleep=lambda _: None)
+
+    reports = client.list_annual_reports("600000")
+
+    assert [row["report_year"] for row in reports] == [2023, 2025]
+    assert [row["title"] for row in reports] == [
+        "2023年年度报告全文（修订版）", "兰花科创2025年度报告"
+    ]
+    assert sum(not row["legacy_match"] and row["current_match"] for row in
+               client.last_annual_report_query_audit) == 2
+    assert len(client.last_annual_report_query_audit) == 3
+
+
+def _gate_panel(sse_covered, szse_covered):
+    rows = []
+    for exchange, covered in (("SSE", sse_covered), ("SZSE", szse_covered)):
+        for index in range(20):
+            resolved = index < covered
+            rows.append({
+                "firm_key": f"{exchange}:{index:06d}:2000-01-01",
+                "year": 2020,
+                "exchange": exchange,
+                "current_status": "current",
+                "province_status": "historical_confirmed" if resolved else "static_fallback_only",
+                "province_historical": "北京市" if resolved else None,
+                "province_conflict": False,
+            })
+    return pd.DataFrame(rows)
+
+
+def test_full_gate_fails_when_sse_current_coverage_is_below_90_percent():
+    panel = _gate_panel(sse_covered=17, szse_covered=20)
+
+    status, gate = evaluate_historical_province_full_gate(panel, panel)
+
+    assert status == "HISTORICAL_PROVINCE_COVERAGE_REVIEW_REQUIRED"
+    assert gate["SSE_current_coverage"] == 0.85
+
+
+def test_full_gate_fails_when_szse_current_coverage_is_below_90_percent():
+    panel = _gate_panel(sse_covered=20, szse_covered=17)
+
+    status, gate = evaluate_historical_province_full_gate(panel, panel)
+
+    assert status == "HISTORICAL_PROVINCE_COVERAGE_REVIEW_REQUIRED"
+    assert gate["SZSE_current_coverage"] == 0.85
+
+
+def test_full_gate_passes_only_when_both_exchanges_and_semantic_checks_pass():
+    panel = _gate_panel(sse_covered=18, szse_covered=19)
+
+    status, gate = evaluate_historical_province_full_gate(panel, panel)
+
+    assert status == "HISTORICAL_PROVINCE_RESEARCH_GATE_PASS"
+    assert gate["exact_key_match"]
+    assert gate["duplicate_keys"] == 0
+    assert gate["illegal_firm_years"] == 0
+    assert gate["static_primary_violations"] == 0
+
+
+def test_full_gate_rejects_static_values_in_primary_historical_field():
+    panel = _gate_panel(sse_covered=20, szse_covered=20)
+    panel.loc[0, "province_status"] = "static_fallback_only"
+
+    status, gate = evaluate_historical_province_full_gate(panel, panel)
+
+    assert status == "HISTORICAL_PROVINCE_COVERAGE_REVIEW_REQUIRED"
+    assert gate["static_primary_violations"] == 1
+
+
+def test_full_gate_rejects_inexact_target_keys_and_duplicate_rows():
+    panel = _gate_panel(sse_covered=20, szse_covered=20)
+    target = panel.copy()
+    target.loc[0, "firm_key"] = "SSE:999999:2000-01-01"
+    panel = pd.concat([panel, panel.iloc[[0]]], ignore_index=True)
+
+    status, gate = evaluate_historical_province_full_gate(panel, target)
+
+    assert status == "HISTORICAL_PROVINCE_COVERAGE_REVIEW_REQUIRED"
+    assert not gate["exact_key_match"]
+    assert gate["duplicate_keys"] == 1
+
+
+def test_delisted_stock_lookup_never_guesses_an_org_id():
+    class NoGuessClient(CNINFOAnnualReportClient):
+        def stock_catalog(self):
+            return {"000001": "gssz0000001"}
+
+        def _request(self, *args, **kwargs):
+            raise AssertionError("missing stock code must not trigger a guessed orgId query")
+
+    client = NoGuessClient(Path("unused"), sleep=lambda _: None)
+
+    assert client.list_annual_reports("600001") == []
+
+
 def test_report_history_field_and_effective_event_extraction():
     text = """
 公司注册地址历史变更情况
@@ -333,6 +521,54 @@ def test_firm_cache_checkpoints_each_year_and_resumes_without_refetch(tmp_path):
     cached = StubClient(tmp_path)
     assert cached.fetch_firm_reports(firm, years=range(2020, 2022)) == records
     assert cached.list_calls == 0
+
+
+def test_targeted_cache_refresh_requeries_only_selected_years(tmp_path):
+    firm = {"firm_key": "SSE:600000:1999-11-10", "stock_code_current": "600000"}
+
+    class StubClient(CNINFOAnnualReportClient):
+        def __init__(self):
+            super().__init__(tmp_path, sleep=lambda _: None)
+            self.downloaded = []
+            self.list_calls = 0
+
+        def list_annual_reports(self, stock_code, start_date="2020-01-01", end_date=None):
+            self.list_calls += 1
+            return [
+                {"report_year": 2020, "source_url": "2020", "source_type": "official_annual_report",
+                 "source_tier": "H1", "announcement_id": "2020", "announcement_time": 1},
+                {"report_year": 2021, "source_url": "2021", "source_type": "official_annual_report",
+                 "source_tier": "H1", "announcement_id": "2021", "announcement_time": 2},
+            ]
+
+        def extract_pdf_text(self, source_url):
+            self.downloaded.append(source_url)
+            return f"注册地址 北京市海淀区知春路{source_url}号"
+
+    cache_path = tmp_path / "SSE_600000_1999-11-10.json"
+    cache_path.write_text(
+        __import__("json").dumps({
+            "cache_format_version": "historical-province-cache-2",
+            "records": [
+                {"firm_key": firm["firm_key"], "stock_code_current": "600000",
+                 "source_report_year": year, "province_raw": "上海市浦东新区",
+                 "source_type": "official_annual_report", "source_tier": "H1",
+                 "source_url_or_id": f"cached-{year}",
+                 "missing_reason": "annual_report_not_found" if year == 2021 else None}
+                for year in (2020, 2021)
+            ],
+        }), encoding="utf-8"
+    )
+
+    client = StubClient()
+    records = client.fetch_firm_reports(
+        firm, years=range(2020, 2022), refresh_years={2021}
+    )
+
+    assert client.list_calls == 1
+    assert client.downloaded == ["2021"]
+    assert records[0]["source_url_or_id"] == "cached-2020"
+    assert records[1]["source_url_or_id"] == "2021"
 
 
 def test_firm_cache_retries_transient_windows_replace_permission_error(tmp_path, monkeypatch):
