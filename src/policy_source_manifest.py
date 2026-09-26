@@ -51,6 +51,41 @@ def read_manifest(path: str | Path) -> list[dict[str, str]]:
     return rows
 
 
+def complete_manifest_scope(
+    rows: list[dict[str, str]], scope_rows: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """Add explicit manual-review rows for target cells not yet sourced."""
+
+    by_cell = {(row["province"], int(row["report_year"])): row for row in rows}
+    if len(by_cell) != len(rows):
+        raise ValueError("cannot expand manifest with duplicate province-year cells")
+    result = list(rows)
+    for scope in scope_rows:
+        for year in range(2019, 2026):
+            cell = (scope["province"], year)
+            if cell in by_cell:
+                continue
+            province_key = scope["province_key"]
+            row = {column: "" for column in MANIFEST_COLUMNS}
+            row.update(
+                {
+                    "policy_id": f"{province_key}_{year}",
+                    "province": scope["province"],
+                    "province_key": province_key,
+                    "report_year": str(year),
+                    "title": f"{year}年{scope['province']}政府工作报告",
+                    "source_type": "government_work_report",
+                    "raw_relpath": f"data/raw/policy_reports/html/{province_key}_{year}.html",
+                    "retrieval_status": "manual_review",
+                    "review_status": "source_not_yet_verified",
+                    "notes": "尚未核验到可用的完整报告来源。",
+                }
+            )
+            result.append(row)
+            by_cell[cell] = row
+    return sorted(result, key=lambda row: (row["province_key"], int(row["report_year"])))
+
+
 def validate_manifest(rows: list[dict[str, str]], scope_rows: list[dict[str, str]]) -> list[str]:
     errors: list[str] = []
     expected_scope = {(row["province"], row["province_key"]) for row in scope_rows}

@@ -6,6 +6,7 @@ import io
 import subprocess
 from argparse import ArgumentParser
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pandas as pd
 
@@ -17,12 +18,27 @@ TIER_LABELS = {
 }
 
 TIER_1_IDS = {
+    *(f"tianjin_{year}" for year in range(2019, 2026)),
+    *(f"hunan_{year}" for year in range(2019, 2026)),
+    *(f"xinjiang_{year}" for year in range(2019, 2026)),
     *(f"beijing_{year}" for year in range(2019, 2026)),
     *(f"shanghai_{year}" for year in range(2019, 2025)),
     *(f"jiangsu_{year}" for year in range(2019, 2026)),
     "sichuan_2019",
     *(f"hubei_{year}" for year in (2023, 2024, 2025)),
     *(f"guangdong_{year}" for year in (2019, 2020, 2021, 2022, 2023, 2025)),
+    *(f"heilongjiang_{year}" for year in range(2019, 2026)),
+    *(f"fujian_{year}" for year in range(2020, 2026)),
+    *(f"liaoning_{year}" for year in range(2019, 2026)),
+    *(f"inner_mongolia_{year}" for year in range(2019, 2026)),
+    *(f"jilin_{year}" for year in range(2019, 2026)),
+    *(f"chongqing_{year}" for year in range(2019, 2026)),
+    *(f"guizhou_{year}" for year in range(2019, 2026)),
+    *(f"yunnan_{year}" for year in range(2019, 2026)),
+    *(f"tibet_{year}" for year in range(2019, 2026)),
+    *(f"ningxia_{year}" for year in range(2019, 2026)),
+    *(f"shaanxi_{year}" for year in range(2022, 2026)),
+    "henan_2022",
 }
 TIER_2_IDS = {
     "zhejiang_2020",
@@ -33,12 +49,49 @@ TIER_2_IDS = {
     *(f"sichuan_{year}" for year in range(2020, 2026)),
 }
 TIER_3_IDS = {"shanghai_2025", "hubei_2020", "zhejiang_2022", "guangdong_2024"}
-TIER_4_IDS = {"zhejiang_2019", "zhejiang_2021", "zhejiang_2023", "hubei_2022"}
+TIER_4_IDS = {
+    "zhejiang_2019", "zhejiang_2021", "zhejiang_2023", "hubei_2022",
+    "anhui_2019", "anhui_2022", "henan_2020", "hainan_2019", "hainan_2020",
+}
+STATE_MEDIA_DOMAINS = (
+    "people.com.cn",
+    "xinhuanet.com",
+    "cnr.cn",
+    "cctv.com",
+    "thepaper.cn",
+    "ahnews.com.cn",
+)
+OTHER_COMPLETE_REPRINT_DOMAINS = (
+    "gcs66.com",
+    "zgcounty.com",
+    "planning.org.cn",
+    "cnpharm.com",
+    "20nsj.com",
+    "mysteel.com",
+    "ifeng.com",
+    "jianpincn.com",
+    "hainan.net",
+    "eesia.cn",
+    "zgoog.com",
+    "32xueyuan.com",
+    "0797cx.cn",
+    "yjysbg.com",
+    "ccement.com",
+    "sina.com.cn",
+)
 
 CANONICAL_REPLACEMENTS: dict[str, dict[str, str]] = {}
 
 
 def classify_source(policy_id: str, source_url: str) -> tuple[int, str, str]:
+    parsed_url = urlparse(source_url)
+    hostname = (parsed_url.hostname or "").lower()
+    if (
+        hostname == "byte.gxnews.com.cn"
+        and "/www.gxzf.gov.cn/" in parsed_url.path
+    ):
+        reason = "广西壮族自治区人民政府门户网站内容的官方镜像完整报告。"
+        return 1, TIER_LABELS[1], reason
     if policy_id in TIER_1_IDS:
         reason = "省级人民政府、人大或正式政府公报直接发布完整报告正文或附件。"
         return 1, TIER_LABELS[1], reason
@@ -48,6 +101,21 @@ def classify_source(policy_id: str, source_url: str) -> tuple[int, str, str]:
     if policy_id in TIER_3_IDS:
         reason = "经来源页面核对为党媒、国家/省级官方媒体或官方公共媒体完整转载。"
         return 3, TIER_LABELS[3], reason
+    if any(hostname == domain or hostname.endswith(f".{domain}") for domain in STATE_MEDIA_DOMAINS):
+        reason = "经来源页面核对为党媒、国家/省级官方媒体或官方公共媒体完整转载。"
+        return 3, TIER_LABELS[3], reason
+    if hostname.endswith(".gov.cn") or hostname.endswith(".gov"):
+        reason = "政府部门、下级政府、政府管理机构或正式公共机构完整转载同一报告。"
+        return 2, TIER_LABELS[2], reason
+    if hostname.endswith(".edu.cn"):
+        reason = "经核对为正式公共教育机构发布的完整报告转载。"
+        return 2, TIER_LABELS[2], reason
+    if any(
+        hostname == domain or hostname.endswith(f".{domain}")
+        for domain in OTHER_COMPLETE_REPRINT_DOMAINS
+    ):
+        reason = "可核对为同年度完整报告转载，但当前页面不属于政府机关或正式官方媒体一级来源。"
+        return 4, TIER_LABELS[4], reason
     if policy_id in TIER_4_IDS:
         reason = "可核对为同年度完整报告转载，但当前页面不属于政府机关或正式官方媒体一级来源。"
         return 4, TIER_LABELS[4], reason
@@ -63,12 +131,19 @@ def enrich_manifest(manifest: pd.DataFrame) -> pd.DataFrame:
                 result.loc[mask, column] = value
         result.loc[mask, "notes"] = replacement["reason"]
     tiers = result.apply(
-        lambda row: classify_source(str(row["policy_id"]), str(row["source_url"])), axis=1
+        lambda row: (
+            (pd.NA, pd.NA, pd.NA)
+            if pd.isna(row["source_url"]) or not str(row["source_url"]).strip()
+            else classify_source(str(row["policy_id"]), str(row["source_url"]))
+        ),
+        axis=1,
     )
     result["source_tier"] = [item[0] for item in tiers]
     result["source_tier_label"] = [item[1] for item in tiers]
     result["source_tier_reason"] = [item[2] for item in tiers]
-    result["source_tier_verified"] = 1
+    result["source_tier_verified"] = [
+        pd.NA if pd.isna(item[0]) else 1 for item in tiers
+    ]
     history = result["notes"].fillna("").astype(str).str.findall(r"fetch_error=\w+")
     existing_history = result.get(
         "retrieval_history_note", pd.Series("", index=result.index)
