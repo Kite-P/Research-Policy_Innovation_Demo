@@ -1,5 +1,6 @@
 import pandas as pd
 
+from src import policy_source_quality
 from src.policy_source_quality import classify_source, enrich_manifest
 
 
@@ -136,3 +137,61 @@ def test_enrich_manifest_separates_historical_fetch_issue():
     assert result.loc[0, "source_tier_verified"] == 1
     assert result.loc[0, "retrieval_history_note"] == "fetch_error=PermissionError"
     assert "fetch_error" not in str(result.loc[0, "notes"])
+
+
+def test_verified_success_rejects_conflicting_or_nonfinal_review_state():
+    manifest = pd.DataFrame(
+        [
+            {
+                "policy_id": "hainan_2024",
+                "retrieval_status": "success",
+                "source_tier_verified": "1",
+                "review_status": "candidate_source_content_validation_pending",
+                "notes": "尚未核验到可用的完整报告来源。",
+            },
+            {
+                "policy_id": "hubei_2022",
+                "retrieval_status": "success",
+                "source_tier_verified": "1",
+                "review_status": "http_downloaded",
+                "notes": "完整转载。",
+            },
+            {
+                "policy_id": "stale_note_2025",
+                "retrieval_status": "success",
+                "source_tier_verified": "1",
+                "review_status": "downloaded",
+                "notes": "content validation pending",
+            },
+            {
+                "policy_id": "complete_2025",
+                "retrieval_status": "success",
+                "source_tier_verified": "1",
+                "review_status": "downloaded",
+                "notes": "来源为完整转载，Tier 4。",
+            },
+            {
+                "policy_id": "manual_2025",
+                "retrieval_status": "manual_review",
+                "source_tier_verified": "0",
+                "review_status": "pending",
+                "notes": "待人工核验。",
+            },
+        ]
+    )
+
+    conflicts = policy_source_quality.find_provenance_review_conflicts(manifest)
+
+    assert conflicts == [
+        ("hainan_2024", "nonfinal_review_status"),
+        ("hubei_2022", "nonfinal_review_status"),
+        ("stale_note_2025", "unresolved_review_language"),
+    ]
+
+
+def test_current_national_manifest_has_no_verified_success_review_conflicts():
+    manifest = pd.read_csv(
+        "metadata/policy_source_manifest.csv", dtype=str, keep_default_na=False
+    )
+
+    assert policy_source_quality.find_provenance_review_conflicts(manifest) == []

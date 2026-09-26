@@ -80,7 +80,55 @@ OTHER_COMPLETE_REPRINT_DOMAINS = (
     "sina.com.cn",
 )
 
+UNRESOLVED_REVIEW_MARKERS = (
+    "pending",
+    "unverified",
+    "not verified",
+    "尚未核验",
+    "尚未验证",
+    "尚未核实",
+    "未核验",
+    "未验证",
+    "待核验",
+    "待验证",
+    "待复核",
+)
+
 CANONICAL_REPLACEMENTS: dict[str, dict[str, str]] = {}
+
+
+def find_provenance_review_conflicts(manifest: pd.DataFrame) -> list[tuple[str, str]]:
+    """Find verified successful sources whose review state is not final and consistent."""
+
+    required = {
+        "policy_id",
+        "retrieval_status",
+        "source_tier_verified",
+        "review_status",
+        "notes",
+    }
+    missing = required.difference(manifest.columns)
+    if missing:
+        raise ValueError(f"manifest is missing provenance columns: {sorted(missing)}")
+
+    conflicts: list[tuple[str, str]] = []
+    for row in manifest.to_dict(orient="records"):
+        verified = str(row["source_tier_verified"]).strip().casefold() in {
+            "1",
+            "true",
+        }
+        if str(row["retrieval_status"]).strip().casefold() != "success" or not verified:
+            continue
+
+        review_status = str(row["review_status"]).strip().casefold()
+        if review_status != "downloaded":
+            conflicts.append((str(row["policy_id"]), "nonfinal_review_status"))
+            continue
+
+        review_text = f"{review_status} {row['notes']}".casefold()
+        if any(marker in review_text for marker in UNRESOLVED_REVIEW_MARKERS):
+            conflicts.append((str(row["policy_id"]), "unresolved_review_language"))
+    return conflicts
 
 
 def classify_source(policy_id: str, source_url: str) -> tuple[int, str, str]:
