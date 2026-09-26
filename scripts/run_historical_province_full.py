@@ -23,6 +23,7 @@ from src.historical_province import (  # noqa: E402
 from src.historical_province_sources import (  # noqa: E402
     CNINFOAnnualReportClient,
     SourceBlocked,
+    atomic_replace_with_retry,
     parse_address_change_events,
 )
 
@@ -36,13 +37,28 @@ def _atomic_json(path: Path, payload: dict[str, object]) -> None:
     temporary.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8"
     )
-    temporary.replace(path)
+    atomic_replace_with_retry(temporary, path)
 
 
 def _write_csv_atomic(frame: pd.DataFrame, path: Path) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     frame.to_csv(temporary, index=False, encoding="utf-8-sig")
-    temporary.replace(path)
+    atomic_replace_with_retry(temporary, path)
+
+
+def _prepare_stata_export(panel: pd.DataFrame) -> pd.DataFrame:
+    stata_panel = panel.drop(
+        columns=["province_source_temporal_adjusted"], errors="ignore"
+    ).copy()
+    for column in stata_panel.select_dtypes(include=["object", "str"]).columns:
+        values = stata_panel[column].dropna()
+        if values.empty:
+            stata_panel[column] = ""
+        elif values.map(lambda value: isinstance(value, bool)).all():
+            stata_panel[column] = pd.to_numeric(
+                stata_panel[column], errors="coerce"
+            ).astype("float64")
+    return stata_panel
 
 
 def run(args: argparse.Namespace) -> int:
@@ -193,7 +209,7 @@ def run(args: argparse.Namespace) -> int:
         ROOT / "data" / "processed" / "firm_year_historical_province.parquet",
         index=False,
     )
-    stata_panel = panel.drop(columns=["province_source_temporal_adjusted"], errors="ignore")
+    stata_panel = _prepare_stata_export(panel)
     stata_panel.to_stata(
         ROOT / "data" / "processed" / "firm_year_historical_province.dta",
         write_index=False,

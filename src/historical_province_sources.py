@@ -11,6 +11,18 @@ from typing import Any
 import requests
 
 
+def atomic_replace_with_retry(source: Path, target: Path, attempts: int = 6) -> None:
+    """Retry brief Windows sharing locks while atomically publishing a file."""
+    for attempt in range(attempts):
+        try:
+            source.replace(target)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(min(0.2 * (2**attempt), 1.6))
+
+
 class SourceBlocked(RuntimeError):
     """Public source requires a stop because access is restricted or challenged."""
 
@@ -253,7 +265,7 @@ class CNINFOAnnualReportClient:
             temporary.write_text(
                 json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
             )
-            temporary.replace(cache_path)
+            atomic_replace_with_retry(temporary, cache_path)
         return [output_by_year[int(year)] for year in years]
 
 

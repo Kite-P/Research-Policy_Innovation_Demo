@@ -496,7 +496,17 @@ def summarize_historical_province_coverage(panel: pd.DataFrame) -> pd.DataFrame:
         "SSE_delisted": frame["exchange"].eq("SSE") & frame["current_status"].eq("delisted"),
         "SZSE_delisted": frame["exchange"].eq("SZSE") & frame["current_status"].eq("delisted"),
     }
-    if "pilot_stratum" in frame:
+    if "market_listing_date" in frame:
+        recent = pd.to_datetime(frame["market_listing_date"], errors="coerce").ge(
+            pd.Timestamp("2020-01-01")
+        )
+        for exchange in ("SSE", "SZSE"):
+            groups[f"{exchange}_recent_IPO"] = (
+                frame["exchange"].eq(exchange)
+                & frame["current_status"].eq("current")
+                & recent
+            )
+    elif "pilot_stratum" in frame and frame["pilot_stratum"].notna().any():
         for stratum in ("SSE_recent_IPO", "SZSE_recent_IPO"):
             groups[stratum] = frame["pilot_stratum"].eq(stratum)
     for stratum, mask in groups.items():

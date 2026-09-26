@@ -1,6 +1,9 @@
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
+from scripts.run_historical_province_full import _prepare_stata_export
 from src.historical_province import (
     HISTORICAL_STATUSES,
     assign_historical_province_chunks,
@@ -332,6 +335,58 @@ def test_firm_cache_checkpoints_each_year_and_resumes_without_refetch(tmp_path):
     assert cached.list_calls == 0
 
 
+def test_firm_cache_retries_transient_windows_replace_permission_error(tmp_path, monkeypatch):
+    firm = {"firm_key": "SSE:600000:1999-11-10", "stock_code_current": "600000"}
+
+    class StubClient(CNINFOAnnualReportClient):
+        def __init__(self):
+            super().__init__(tmp_path, request_spacing=1.0, sleep=lambda _: None)
+
+        def list_annual_reports(self, stock_code, start_date="2020-01-01", end_date=None):
+            return []
+
+    original_replace = Path.replace
+    attempts = {"count": 0}
+
+    def transient_lock_once(path, target):
+        if str(path).endswith(".tmp") and str(target).endswith(".json"):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise PermissionError("temporary Windows file lock")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", transient_lock_once)
+    client = StubClient()
+    records = client.fetch_firm_reports(firm, years=range(2020, 2021))
+
+    assert records[0]["missing_reason"] == "annual_report_not_found"
+    assert attempts["count"] == 2
+    assert len(list(tmp_path.glob("*.json"))) == 1
+
+
+def test_stata_export_converts_all_missing_object_columns_to_empty_strings(tmp_path):
+    panel = pd.DataFrame({
+        "firm_key": ["SSE:600000:1999-11-10", "SSE:600001:1999-11-10"],
+        "historical_stock_code": [None, None],
+        "province_static_agrees": [True, None],
+        "province_source_temporal_adjusted": [False, False],
+    })
+
+    result = _prepare_stata_export(panel)
+
+    assert "province_source_temporal_adjusted" not in result
+    assert result["historical_stock_code"].tolist() == ["", ""]
+    assert result.loc[0, "province_static_agrees"] == 1.0
+    assert pd.isna(result.loc[1, "province_static_agrees"])
+    assert pd.isna(panel.loc[0, "historical_stock_code"])
+    output = tmp_path / "historical_province.dta"
+    result.to_stata(output, write_index=False, version=118)
+    assert output.is_file()
+    exported = pd.read_stata(output)
+    assert exported["province_static_agrees"].tolist()[0] == 1
+    assert pd.isna(exported["province_static_agrees"].tolist()[1])
+
+
 def test_stale_firm_cache_version_is_refetched(tmp_path):
     firm = {"firm_key": "SSE:600000:1999-11-10", "stock_code_current": "600000"}
     path = tmp_path / "SSE_600000_1999-11-10.json"
@@ -433,3 +488,24 @@ def test_pilot_gate_uses_current_exchange_coverage_and_semantic_audit():
     assert gate["SSE_current_coverage"] == 1.0
     assert gate["SZSE_current_coverage"] == 1.0
     assert coverage.loc["all", "firm_years"] == 20
+
+
+def test_full_coverage_derives_recent_ipo_subgroups_from_listing_date():
+    panel = pd.DataFrame([
+        {"firm_key": "SSE:600001:2018-01-01", "year": 2022, "exchange": "SSE",
+         "current_status": "current", "market_listing_date": "2018-01-01",
+         "province_status": "historical_confirmed", "province_conflict": False},
+        {"firm_key": "SSE:688001:2021-01-01", "year": 2022, "exchange": "SSE",
+         "current_status": "current", "market_listing_date": "2021-01-01",
+         "province_status": "historical_inferred", "province_conflict": False},
+        {"firm_key": "SZSE:300001:2020-01-01", "year": 2022, "exchange": "SZSE",
+         "current_status": "current", "market_listing_date": "2020-01-01",
+         "province_status": "static_fallback_only", "province_conflict": False},
+    ])
+
+    coverage = summarize_historical_province_coverage(panel).set_index("stratum")
+
+    assert coverage.loc["SSE_recent_IPO", "firms"] == 1
+    assert coverage.loc["SSE_recent_IPO", "firm_years"] == 1
+    assert coverage.loc["SSE_current", "firms"] == 2
+    assert coverage.loc["SZSE_recent_IPO", "historical_coverage"] == 0.0
