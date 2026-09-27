@@ -13,11 +13,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.cnipa_entity_names import (  # noqa: E402
+    attach_collision_listing_details,
     audit_name_collisions,
     build_deterministic_pilot_sample,
     build_entity_name_universe,
+    build_entity_year_name_coverage,
     build_query_artifacts,
     parse_formername_candidates,
+    resolve_listing_collision_types,
     validate_firm_profile_consistency,
     validate_full_target_set,
     validate_query_artifacts,
@@ -81,7 +84,11 @@ def build_preflight(
     selected_profiles = profiles.loc[profiles.firm_key.isin(expected_firms)].copy()
     validate_full_target_set(expected_firms, set(selected_profiles.firm_key))
     evidence = _read_evidence(evidence_path)
-    names = build_entity_name_universe(selected_profiles, evidence)
+    names = build_entity_name_universe(
+        selected_profiles,
+        evidence,
+        formername_semantics="FORMER_SECURITY_NAME_ONLY",
+    )
     current_profile_keys = set(
         names.loc[names.name_type.eq("current_legal"), "firm_key"]
     )
@@ -112,7 +119,10 @@ def build_preflight(
         output_dir / "pilot_candidate_name_audit.csv", index=False, encoding="utf-8-sig"
     )
 
-    collisions = audit_name_collisions(names)
+    collisions = resolve_listing_collision_types(
+        audit_name_collisions(names)
+    )
+    collisions = attach_collision_listing_details(collisions, selected_profiles, names)
     collisions.to_csv(
         output_dir / "name_collision_audit.csv", index=False, encoding="utf-8-sig"
     )
@@ -128,6 +138,23 @@ def build_preflight(
     )
     query_artifacts.name_firm_map.to_csv(
         output_dir / "cnipa_query_name_firm_map.csv", index=False, encoding="utf-8-sig"
+    )
+
+    cache_records = []
+    cache_dir = Path("results/historical_province/cache")
+    for cache_path in sorted(cache_dir.glob("*.json")):
+        try:
+            cache_obj = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        cache_records.extend(cache_obj.get("records", []))
+    coverage = build_entity_year_name_coverage(
+        target_panel,
+        selected_profiles,
+        pd.DataFrame(cache_records),
+    )
+    coverage.to_csv(
+        output_dir / "entity_year_name_coverage.csv", index=False, encoding="utf-8-sig"
     )
 
     former_nonempty = selected_profiles.former_names_raw.map(
@@ -152,6 +179,7 @@ def build_preflight(
         if current_coverage == len(expected_firms)
         and unresolved_candidates.empty
         and unresolved_collisions == 0
+        and coverage.loc[coverage.year.between(2020, 2024), "legal_name"].ne("").all()
         else "CNIPA_ENTITY_NAME_NEEDS_FIX"
     )
     stratum_counts: dict[str, int] = {}
@@ -173,6 +201,10 @@ def build_preflight(
             selected_profiles.loc[former_nonempty, "firm_key"].nunique()
         ),
         "formername_candidate_rows": len(former_rows),
+        "formername_semantics": "FORMER_SECURITY_NAME_ONLY",
+        "formername_bulk_rejected_rows": int(
+            former_rows.verification_status.eq("REJECTED").sum()
+        ),
         "formername_unique_firms_with_candidate": int(former_rows.firm_key.nunique()),
         "historical_legal_names_verified": int(
             verified_history.candidate_name_normalized.nunique()
@@ -186,10 +218,30 @@ def build_preflight(
         ),
         "normalized_name_collision_groups": len(collisions),
         "unresolved_collision_groups": unresolved_collisions,
+        "collision_status_counts": collisions.collision_status.value_counts().to_dict(),
+        "entity_year_name_coverage_2020_2024": {
+            "target_firm_years": int(coverage.year.between(2020, 2024).sum()),
+            "with_report_name_evidence": int(
+                coverage.loc[coverage.year.between(2020, 2024), "legal_name"].ne("").sum()
+            ),
+            "report_unavailable": int(
+                coverage.loc[
+                    coverage.year.between(2020, 2024), "coverage_status"
+                ].eq("REPORT_UNAVAILABLE").sum()
+            ),
+            "temporal_unresolved": int(
+                coverage.loc[
+                    coverage.year.between(2020, 2024), "temporal_match_uncertain"
+                ].sum()
+            ),
+        },
         "query_limits": {"max_names": max_names, "max_chars": max_chars},
         "query_limit_status": "CNIPA_QUERY_LIMIT_UNCONFIRMED",
         "query_gate": query_gate,
         "query_names_exact_once": True,
+        "max_query_string_length": int(
+            query_artifacts.query_batches.query_string.str.len().max()
+        ),
         "pilot_firms": len(pilot),
         "pilot_strata_firm_counts": stratum_counts,
         "pilot_formername_classification_counts": pilot_candidates.loc[

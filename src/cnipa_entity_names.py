@@ -22,6 +22,7 @@ NAME_TYPES = {
 VERIFICATION_STATUSES = {"VERIFIED", "REJECTED", "UNRESOLVED"}
 DATE_PRECISIONS = {"unknown", "year", "exact_date"}
 HISTORICAL_TIERS = {"H1", "H2", "H3"}
+FORMERNAME_SEMANTICS = {"UNRESOLVED", "FORMER_SECURITY_NAME_ONLY"}
 REQUIRED_PROFILE_COLUMNS = {
     "firm_key",
     "exchange",
@@ -202,8 +203,12 @@ def _apply_review(record: dict[str, Any], review: dict[str, Any]) -> dict[str, A
 
 
 def build_entity_name_universe(
-    firm_profiles: pd.DataFrame, reviewed_evidence: pd.DataFrame
+    firm_profiles: pd.DataFrame,
+    reviewed_evidence: pd.DataFrame,
+    formername_semantics: str = "UNRESOLVED",
 ) -> pd.DataFrame:
+    if formername_semantics not in FORMERNAME_SEMANTICS:
+        raise ValueError(f"invalid formername_semantics: {formername_semantics}")
     missing = REQUIRED_PROFILE_COLUMNS.difference(firm_profiles.columns)
     if missing:
         raise ValueError(f"firm profile is missing columns: {sorted(missing)}")
@@ -234,7 +239,29 @@ def build_entity_name_universe(
             )
             rows.append(current)
         for candidate in parse_formername_candidates(row.get("former_names_raw")):
-            rows.append(_base_record(row, candidate, "FORMERNAME"))
+            record = _base_record(row, candidate, "FORMERNAME")
+            if formername_semantics == "FORMER_SECURITY_NAME_ONLY":
+                record.update(
+                    {
+                        "name_type": "rejected_stock_abbreviation",
+                        "verification_status": "REJECTED",
+                        "query_eligible": 0,
+                        "temporal_match_uncertain": 0,
+                        "rejection_reason": (
+                            "EastMoney RPT_F10_BASIC_ORGINFO.FORMERNAME field-level audit: "
+                            "historical security abbreviation, not legal-entity name"
+                        ),
+                        "evidence_tier": "FIELD_SEMANTICS",
+                        "evidence_source": (
+                            "EastMoney F10 field + official exchange/annual-report cross-check"
+                        ),
+                        "evidence_url": (
+                            "https://datacenter.eastmoney.com/securities/api/data/v1/get?"
+                            "reportName=RPT_F10_BASIC_ORGINFO"
+                        ),
+                    }
+                )
+            rows.append(record)
 
     result = pd.DataFrame(rows, columns=OUTPUT_COLUMNS)
     if result.empty:
@@ -264,6 +291,17 @@ def build_entity_name_universe(
                 raise ValueError("reviewed evidence matches duplicate firm/name candidates")
             if match:
                 idx = match[0]
+                if (
+                    formername_semantics == "FORMER_SECURITY_NAME_ONLY"
+                    and result.loc[idx, "source_field"] == "FORMERNAME"
+                    and not (
+                        review["name_type"] == "rejected_stock_abbreviation"
+                        and review["verification_status"] == "REJECTED"
+                    )
+                ):
+                    raise ValueError(
+                        "frozen FORMERNAME semantics conflict with reviewed legal-name evidence"
+                    )
                 record = result.loc[idx].to_dict()
                 result.loc[idx, list(OUTPUT_COLUMNS)] = pd.Series(
                     _apply_review(record, review)
@@ -382,6 +420,170 @@ def audit_name_collisions(name_universe: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(records, columns=columns)
 
 
+def resolve_listing_collision_types(collisions: pd.DataFrame) -> pd.DataFrame:
+    """Resolve only shared legal entities listed under distinct security codes.
+
+    Same-security-key/multiple-firm-key cases remain unresolved because the
+    available metadata cannot establish which listing key is authoritative.
+    """
+    if collisions.empty:
+        return collisions.copy()
+    result = collisions.copy()
+    shared = result.collision_type.eq("same_legal_entity_different_listing_instance")
+    result.loc[shared, "collision_status"] = "RESOLVED_SHARED_QUERY_TEMPORAL_ALLOCATION"
+    result.loc[shared, "review_reason"] = (
+        "相同 F10 ORG_CODE 对应不同证券代码；查询可共享一次，保留全部 firm_key，"
+        "后续按上市实例和申请日期分配"
+    )
+    return result
+
+
+def attach_collision_listing_details(
+    collisions: pd.DataFrame, firm_profiles: pd.DataFrame, name_universe: pd.DataFrame
+) -> pd.DataFrame:
+    """Attach local-only firm, code, legal-name, and interval evidence per collision."""
+    if collisions.empty:
+        return collisions.copy()
+    profiles = firm_profiles.drop_duplicates("firm_key").set_index("firm_key", drop=False)
+    names = name_universe.copy()
+    details_column: list[str] = []
+    overlap_column: list[int] = []
+    for collision in collisions.itertuples(index=False):
+        members = []
+        for key in str(collision.firm_keys).split("|"):
+            if key not in profiles.index:
+                continue
+            profile = profiles.loc[key]
+            historical = names.loc[
+                names.firm_key.astype(str).eq(key)
+                & names.name_type.eq("historical_legal")
+                & names.verification_status.eq("VERIFIED"),
+                "candidate_name_normalized",
+            ].drop_duplicates().tolist()
+            start = pd.to_datetime(profile.get("market_listing_date"), errors="coerce")
+            end = pd.to_datetime(profile.get("delisting_date"), errors="coerce")
+            members.append(
+                {
+                    "firm_key": key,
+                    "exchange": _text(profile.get("exchange")),
+                    "stock_code": _text(profile.get("stock_code_current")),
+                    "org_code": _text(profile.get("source_org_code")),
+                    "market_listing_date": start.date().isoformat() if pd.notna(start) else "",
+                    "delisting_date": end.date().isoformat() if pd.notna(end) else "",
+                    "current_legal_name": normalize_company_name(
+                        profile.get("company_name_legal_profile")
+                    ),
+                    "historical_legal_names": historical,
+                }
+            )
+        overlap = False
+        for index, left in enumerate(members):
+            left_start = pd.to_datetime(left["market_listing_date"], errors="coerce")
+            left_end = pd.to_datetime(left["delisting_date"], errors="coerce")
+            for right in members[index + 1 :]:
+                right_start = pd.to_datetime(right["market_listing_date"], errors="coerce")
+                right_end = pd.to_datetime(right["delisting_date"], errors="coerce")
+                if pd.notna(left_start) and pd.notna(right_start):
+                    if max(left_start, right_start) <= min(
+                        left_end if pd.notna(left_end) else pd.Timestamp.max,
+                        right_end if pd.notna(right_end) else pd.Timestamp.max,
+                    ):
+                        overlap = True
+        details_column.append(json.dumps(members, ensure_ascii=False, sort_keys=True))
+        overlap_column.append(int(overlap))
+    result = collisions.copy()
+    result["listing_details_json"] = details_column
+    result["listing_intervals_overlap"] = overlap_column
+    return result
+
+
+ENTITY_YEAR_NAME_COLUMNS = [
+    "firm_key",
+    "year",
+    "legal_name",
+    "name_type",
+    "evidence_tier",
+    "evidence_source",
+    "evidence_url",
+    "valid_from",
+    "valid_to",
+    "date_precision",
+    "temporal_match_uncertain",
+    "coverage_status",
+    "coverage_note",
+]
+
+
+def build_entity_year_name_coverage(
+    target_panel: pd.DataFrame,
+    profiles: pd.DataFrame,
+    report_cache_records: pd.DataFrame,
+    years: range = range(2020, 2026),
+) -> pd.DataFrame:
+    """Create a conservative firm-year report-content coverage inventory.
+
+    Report metadata/URLs do not count as legal-name evidence when the source
+    document or retained report text is absent. In that case legal_name stays
+    blank rather than being silently filled with today's profile name.
+    """
+    if not {"firm_key", "year"}.issubset(target_panel.columns):
+        raise ValueError("target panel requires firm_key and year")
+    if not {"firm_key", "company_name_legal_profile"}.issubset(profiles.columns):
+        raise ValueError("profiles require firm_key and current legal name")
+    required_cache = {"firm_key", "source_report_year", "source_url_or_id"}
+    if not report_cache_records.empty and not required_cache.issubset(
+        report_cache_records.columns
+    ):
+        raise ValueError("report cache records lack report metadata columns")
+    targets = target_panel.loc[
+        pd.to_numeric(target_panel.year, errors="raise").astype(int).isin(years),
+        ["firm_key", "year"],
+    ].drop_duplicates()
+    cache = report_cache_records.copy()
+    if not cache.empty:
+        cache["year"] = pd.to_numeric(cache.source_report_year, errors="coerce")
+        cache = cache.drop_duplicates(["firm_key", "year"], keep="last")
+    cache_index = (
+        cache.set_index([cache.firm_key.astype(str), "year"])
+        if not cache.empty
+        else None
+    )
+    records: list[dict[str, Any]] = []
+    for row in targets.itertuples(index=False):
+        key, year = str(row.firm_key), int(row.year)
+        cached = None
+        if cache_index is not None and (key, year) in cache_index.index:
+            cached = cache_index.loc[(key, year)]
+            if isinstance(cached, pd.DataFrame):
+                cached = cached.iloc[-1]
+        url = _text(cached.get("source_url_or_id")) if cached is not None else ""
+        records.append(
+            {
+                "firm_key": key,
+                "year": year,
+                "legal_name": "",
+                "name_type": "unverified",
+                "evidence_tier": "H1" if url.startswith("http") else "",
+                "evidence_source": (
+                    "CNINFO annual-report cache metadata; report body not retained"
+                    if url
+                    else "No matching annual-report cache metadata"
+                ),
+                "evidence_url": url,
+                "valid_from": "",
+                "valid_to": "",
+                "date_precision": "unknown",
+                "temporal_match_uncertain": 1,
+                "coverage_status": "REPORT_UNAVAILABLE",
+                "coverage_note": (
+                    "Local cache retains address extraction and report metadata only; "
+                    "legal-name evidence cannot be verified without report content"
+                ),
+            }
+        )
+    return pd.DataFrame(records, columns=ENTITY_YEAR_NAME_COLUMNS)
+
+
 def build_query_artifacts(
     name_universe: pd.DataFrame, max_names: int = 20, max_chars: int = 1500
 ) -> QueryArtifacts:
@@ -395,8 +597,13 @@ def build_query_artifacts(
         for idx, batch in enumerate(batches, start=1)
         for name in batch
     }
-    collisions = audit_name_collisions(eligible)
+    collisions = resolve_listing_collision_types(audit_name_collisions(eligible))
     colliding_names = set(collisions.normalized_name) if not collisions.empty else set()
+    collision_status_by_name = (
+        dict(zip(collisions.normalized_name, collisions.collision_status))
+        if not collisions.empty
+        else {}
+    )
     query_names = pd.DataFrame(
         [
             {
@@ -442,8 +649,11 @@ def build_query_artifacts(
     )
     name_firm_map["query_batch_id"] = name_firm_map.query_name.map(name_to_batch)
     name_firm_map["collision"] = name_firm_map.query_name.isin(colliding_names).astype(int)
-    name_firm_map["attribution_status"] = name_firm_map.collision.map(
-        {1: "UNRESOLVED_COLLISION", 0: "TEMPORAL_REVIEW_REQUIRED"}
+    name_firm_map["attribution_status"] = name_firm_map.query_name.map(
+        lambda name: {
+            "RESOLVED_SHARED_QUERY_TEMPORAL_ALLOCATION": "SHARED_QUERY_TEMPORAL_ALLOCATION",
+            "UNRESOLVED": "UNRESOLVED_COLLISION",
+        }.get(collision_status_by_name.get(name, ""), "TEMPORAL_REVIEW_REQUIRED")
     )
     return QueryArtifacts(query_names, query_batches, name_firm_map.reset_index(drop=True))
 

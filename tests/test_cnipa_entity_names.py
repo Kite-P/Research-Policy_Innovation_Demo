@@ -5,11 +5,14 @@ import pandas as pd
 import pytest
 
 from src.cnipa_entity_names import (
+    attach_collision_listing_details,
     audit_name_collisions,
     build_deterministic_pilot_sample,
     build_entity_name_universe,
+    build_entity_year_name_coverage,
     build_query_artifacts,
     parse_formername_candidates,
+    resolve_listing_collision_types,
     validate_firm_profile_consistency,
     validate_full_target_set,
     validate_query_artifacts,
@@ -99,6 +102,74 @@ def test_unresolved_formername_candidate_is_not_query_eligible():
     assert aliases.name_type.eq("unresolved").all()
     assert aliases.verification_status.eq("UNRESOLVED").all()
     assert aliases.query_eligible.eq(0).all()
+
+
+def test_frozen_formername_field_semantics_bulk_rejects_all_candidates():
+    names = build_entity_name_universe(
+        _firms(), pd.DataFrame(), formername_semantics="FORMER_SECURITY_NAME_ONLY"
+    )
+    aliases = names.loc[names.source_field.eq("FORMERNAME")]
+    assert len(aliases) == 3
+    assert aliases.name_type.eq("rejected_stock_abbreviation").all()
+    assert aliases.verification_status.eq("REJECTED").all()
+    assert aliases.query_eligible.eq(0).all()
+
+
+def test_frozen_formername_semantics_rejects_mixed_legal_evidence_conflict():
+    evidence = _evidence().iloc[[1]].copy()
+    evidence.loc[:, "candidate_name_raw"] = "示例甲方简称"
+    with pytest.raises(ValueError, match="semantics conflict"):
+        build_entity_name_universe(
+            _firms(), evidence, formername_semantics="FORMER_SECURITY_NAME_ONLY"
+        )
+
+
+def test_entity_year_report_unavailable_does_not_fall_back_to_current_name():
+    target = pd.DataFrame({"firm_key": ["f1", "f1"], "year": [2020, 2021]})
+    profiles = pd.DataFrame(
+        {"firm_key": ["f1"], "company_name_legal_profile": ["当前法人全称"]}
+    )
+    cache = pd.DataFrame(
+        {
+            "firm_key": ["f1"],
+            "source_report_year": [2020],
+            "source_url_or_id": ["https://example.test/report.pdf"],
+        }
+    )
+    result = build_entity_year_name_coverage(target, profiles, cache, years=range(2020, 2022))
+    assert len(result) == 2
+    assert result.legal_name.eq("").all()
+    assert result.coverage_status.eq("REPORT_UNAVAILABLE").all()
+    assert result.loc[result.year.eq(2020), "evidence_url"].item().startswith("https://")
+
+
+def test_collision_resolution_only_accepts_same_entity_distinct_security_codes():
+    collisions = pd.DataFrame(
+        {
+            "collision_type": [
+                "same_legal_entity_different_listing_instance",
+                "unresolved",
+            ],
+            "collision_status": ["UNRESOLVED", "UNRESOLVED"],
+        }
+    )
+    result = resolve_listing_collision_types(collisions)
+    assert result.collision_status.tolist() == [
+        "RESOLVED_SHARED_QUERY_TEMPORAL_ALLOCATION",
+        "UNRESOLVED",
+    ]
+
+
+def test_collision_details_include_listing_intervals_without_merging_firms():
+    firms = _firms().copy()
+    firms["market_listing_date"] = ["2020-01-01", "2010-01-01", "2015-01-01"]
+    names = build_entity_name_universe(firms, pd.DataFrame())
+    collisions = resolve_listing_collision_types(audit_name_collisions(names))
+    details = attach_collision_listing_details(collisions, firms, names)
+    assert len(details) == 1
+    assert details.iloc[0].listing_intervals_overlap == 1
+    assert '"stock_code": "000001"' in details.iloc[0].listing_details_json
+    assert len(details.iloc[0].firm_keys.split("|")) == 2
 
 
 def test_empty_formername_is_a_valid_empty_candidate_set():
