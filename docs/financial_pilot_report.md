@@ -1,5 +1,7 @@
 # 4.3F-Pilot 完成汇报
 
+> 本报告记录身份键纠正前的历史 pilot。其 100 家样本和 Gate 结论不代表当前 canonical universe；当前正式目标状态见 `full_financial_fetch_pipeline.md`。
+
 ## 1. Sample
 
 - firms: 100

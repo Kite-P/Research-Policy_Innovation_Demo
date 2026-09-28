@@ -60,7 +60,7 @@
 
 - Python：本轮最终全库 pytest 与 Ruff 结果见本次执行汇报。
 - 面板键：与纠正后 Phase A 目标键精确匹配 28,537/28,537；重复键 0；非法年份、交易所及上市期观测 0。
-- Stata/MP 18：原 sentinel `HISTORICAL_PROVINCE_VALIDATION_PASS` 对应纠正前文件。本轮按新键重导 `.dta`，未重新运行 Stata，不将旧 sentinel 宣称为新文件的复验结果。
+- 身份键纠正后 `.dta` 从现有结果按 canonical target 重导；Stata/MP 18 已实际重新验证该文件，sentinel 为 `HISTORICAL_PROVINCE_VALIDATION_PASS`。
 - 当前研究门槛：`HISTORICAL_PROVINCE_RESEARCH_GATE_PASS`。当前任务只建立并验证历史省份面板。省级政策文本补齐、政策匹配、BSE、专利与回归均未在本阶段执行。
 
 历史注册地址由公开年报文本提取，地址格式及迁址披露的完整程度因企业与年份而异。覆盖率和未解决冲突应视为正式测量审计的一部分，而非需要以静态地址消除的工程噪声。

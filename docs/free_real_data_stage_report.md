@@ -1,5 +1,7 @@
 # 4.1P—4.3F 免费真实数据阶段报告
 
+> 前文各阶段条目按其执行时点记录历史状态；其中 5,690/30,328 和 5,272/28,548 均为 canonical identity correction 之前的规模，不是当前目标。当前 active 规模、面板状态与本轮复核结果以文末 4.4A-R2K 更新为准。Profile 5,690 条历史缓存予以保留，active Profile target 为 5,687 家。
+
 ## Git
 
 - 4.1P: `017ac3316becfc5aa9fe976bb99adb3a5c29382c`
@@ -69,7 +71,7 @@
 
 - Profile 来源已由 CNINFO 切换为 EastMoney F10 `RPT_F10_BASIC_ORGINFO`；CNINFO 路线记录为 `AKSHARE_CNINFO_PROFILE_INCOMPATIBLE`。
 - 5,690 个 firm-level Profile 记录全部返回 `PASS`；合法名称、省份、CSRC 行业和 ORG_CODE 覆盖率均为 100%，省份冲突为 0。
-- 丰富后的企业总体仍为 30,328 个 firm-year，30328 个 `firm_key + year` 通过 Stata `isid`，年份为 2020—2025。
+- 当时丰富后的企业总体为 30,328 个 firm-year，纠正前 `firm_key + year` 通过 Stata `isid`；该历史规模已由当前 30,317 个 firm-year 取代。
 - Profile 试点通过后执行了全量 enrichment；原始数据、缓存和生成结果仍保持 ignored，不提交 GitHub。
 - 财务缓存改用 `firm_key`，并记录来源组件可用性、字段级缺失和失败原因。
 - 旧 50 家 pilot 的成功率为 130/201；新的分层试点实际为 70 家，BSE 后 2021 新上市层在总体中为 0 家。SSE 当前层与近期 IPO SSE 未达到 90% 核心字段覆盖，财务 Gate 未通过。
@@ -79,7 +81,7 @@
 ## 4.2F-E-R 财务 Gate 定义纠错与复核
 
 - BSE 日期逻辑已修正：286 家中 transferred 67 家，native/post-2021 219 家；BSE 2020 firm-year 为 0。
-- 新总体和 enriched universe 已重新生成；旧 Profile cache 仅按相同 `firm_key` 复用，native BSE 新键重新查询，Profile 5690/5690 PASS。
+- 当时新总体和 enriched universe 已重新生成；旧 Profile cache 仅按相同 `firm_key` 复用，native BSE 新键重新查询，Profile 5690/5690 PASS。该数是纠正前历史缓存覆盖；当前 active Profile 为 5687/5687。
 - `INDUSTRYCSRC1` 的实际值是层级化中文 CSRC 行业名称，不是数值代码；金融业规则为值等于 `金融业` 或以 `金融业-` 开头。金融企业 132 家，非金融企业 5558 家，缺失 0 家。
 - 财务 pilot 使用 seed `20260923` 的 SHA-256 分层抽样，8 个 strata 均达到目标，共 80 家；金融企业和缺失行业企业均未进入 pilot。
 - SSE current nonfinancial：25/25，`SSE_FINANCE_GATE_PASS`；SZSE current nonfinancial：25/25，`SZSE_FINANCE_GATE_PASS`；合并主 Gate 通过。
@@ -118,6 +120,16 @@
 - 状态计数：5,008 `COMPLETE`、4 `PARTIAL`、257 `QUERY_FAILED`；`NOT_FETCHED=0`、`SOURCE_BLOCKED=0`。目标企业仍全部保留。
 - 财务面板由已存在的 firm_key 缓存重新组装；重复键和非法上市/退市边界观测为 0。当前 SSE/SZSE 核心字段完整率为 99.1688%/99.4936%，R&D 覆盖率沿用对应正式观测。
 - 身份审计确认 600555、600190、600614 的 B 股挂牌日期曾与 A 股代码组合为额外键；现保留 A 股挂牌键并移除 3 个伪重复 firm_key。没有重新抓取财务数据。BSE 仍为 `BSE_MAPPING_REQUIRED`，132 家金融业企业仍排除。
-- Stata 正式 `.dta` 已按新目标重导，但本轮未重新运行 Stata；sentinel `FINANCIAL_SSE_SZSE_FULL_VALIDATION_PASS` 是纠正前正式文件的既有执行记录，不作为纠正后文件的新验证结果。
+- Stata 正式 `.dta` 已按新目标重导；4.4A-R2K 后续已使用 Stata/MP 18 对 universe、enriched universe、财务面板和历史省份面板重新执行验证，具体 sentinel 见本报告末尾更新。
 
-当前抓取状态仍为 `SSE_SZSE_FULL_FETCH_COMPLETE`，其含义是缓存覆盖的纠正后沪深非金融目标已完成组装；该状态不代表 5,687 家来源总体全部完成，也不代表本轮重新执行了 Stata。
+当前抓取状态仍为 `SSE_SZSE_FULL_FETCH_COMPLETE`，其含义是缓存覆盖的纠正后沪深非金融目标已完成组装；该状态不代表 5,687 家来源总体全部完成。
+
+## 4.4A-R2K Canonical A-share Entity-Key Reconciliation
+
+- 官方披露、挂牌日期与一致的 ORG_CODE 支持纠正 3 个 B 股日期别名；身份键差异为精确移除 3 个别名、11 个 firm-year，无新增键。原始 Profile 历史缓存保留，active universe/Profile 为 5,687 家、30,317 行。
+- Phase A 目标为 5,269 家、28,537 行、53 个 chunk；状态为 5,008 `COMPLETE`、4 `PARTIAL`、257 `QUERY_FAILED`，`NOT_FETCHED=0`、`SOURCE_BLOCKED=0`。SSE/SZSE current core 分别 99.1688%/99.4936%，R&D 覆盖率分别 92.3531%/95.4295%。
+- 历史省份面板为 5,269 家、28,537 行；状态 23,937 confirmed、2,462 inferred、2,106 static fallback、32 missing、4 conflicts。SSE/SZSE current coverage 为 92.44%/94.05%，Gate 通过。
+- Stata/MP 18 本轮实际执行并通过：`REAL_COMPANY_UNIVERSE_VALIDATION_PASS`、`ENRICHED_UNIVERSE_VALIDATION_PASS`、`FINANCIAL_SSE_SZSE_FULL_VALIDATION_PASS`、`HISTORICAL_PROVINCE_VALIDATION_PASS`。
+- 潜在政策地理覆盖为 26,388 个内地 firm-year 可匹配，2,138 个内地 firm-year 地理缺失，11 个香港 firm-year 在内地范围外；未生成政策企业面板。
+- CNIPA 没有登录、访问或下载。既有缓存显示 pilot 原始运行状态与冻结 Gate 结论不一致；按计划保留原始文件并采用严格 Gate 未通过结论，CNIPA 状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`。`zero_semantics` 与 `missing_semantics` 仍为 pending。
+- BSE 仍为 `BSE_MAPPING_REQUIRED`；未开展 BSE 抓取、专利、政策匹配或回归。

@@ -14,13 +14,21 @@ assert missing(delisting_date) | year <= year(dofc(delisting_date))
 keep firm_key year
 isid firm_key year
 quietly count
-assert r(N) == 28548
+assert r(N) == 28537
+egen tag_firm = tag(firm_key)
+quietly count if tag_firm
+assert r(N) == 5269
+drop tag_firm
 tempfile target_keys
 save `target_keys'
 
 use "data/processed/firm_year_historical_province.dta", clear
 isid firm_key year
-assert _N == 28548
+assert _N == 28537
+egen tag_firm = tag(firm_key)
+quietly count if tag_firm
+assert r(N) == 5269
+drop tag_firm
 assert inrange(year, 2020, 2025)
 assert inlist(exchange, "SSE", "SZSE")
 assert inlist(province_status, "historical_confirmed", "historical_inferred", ///
@@ -35,6 +43,16 @@ assert missing(province_historical) if province_conflict == 1
 merge 1:1 firm_key year using `target_keys'
 assert _merge == 3
 drop _merge
+
+foreach ex in SSE SZSE {
+    quietly count if exchange == "`ex'" & current_status == "current"
+    local denominator = r(N)
+    quietly count if exchange == "`ex'" & current_status == "current" & inlist(province_status, "historical_confirmed", "historical_inferred")
+    local numerator = r(N)
+    local coverage = `numerator' / `denominator'
+    display "`ex'_CURRENT_HISTORICAL_COVERAGE=" %8.6f `coverage'
+    if `coverage' < 0.90 exit 459
+}
 
 quietly count if province_status == "historical_confirmed"
 display "HISTORICAL_CONFIRMED=" r(N)

@@ -51,3 +51,9 @@ Full 目标与 status 键集合精确一致，共 23,448 行。处理复用了 H
 - `zero_semantics`、`missing_semantics` 仍为 `pending`；没有 CNIPA 登录、专利检索/下载、企业—专利归属或回归。
 - 企业级名称、逐年证据、碰撞详情、PDF 哈希和 query 明细均为本地 ignored 数据，不纳入版本控制。
 - 本轮 pytest：292 passed；Ruff：`All checks passed!`；116 个依赖兼容；推送卫生和 Markdown 检查通过。
+
+## 4.4A-R2K 实体键纠正后的只读复核
+
+CNINFO 身份键更正后，现有名称与 year coverage 文件仅按新 firm-year key 做了只读对齐；本轮未登录 CNIPA、未发起 CNIPA 请求，也未下载专利。当前 primary 目标为 23,448 个 firm-year，2025 审计为 5,089 个 firm-year；名称键与当前目标相符。
+
+严格按冻结的 Pilot Gate 复核，pilot Gate 不通过，Full 状态保持 `FULL_EVIDENCE_CACHE_PRE_GATE`，整体仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`。本地 ignored 的 `pilot_summary.json` / `pilot_run_state.json` 却报告 6 个案例、全项 1.0 和 `pilot_gate_pass=true`，与计划记录的 5 个变更案例及 Gate 未通过结论冲突。为避免覆盖原始证据，本轮未修改这些文件；该冲突不作为通过依据。353 个时间关系未决、695 个主窗口 firm-year 未抽取到法人名称；`zero_semantics`、`missing_semantics` 仍为 pending。

@@ -104,9 +104,19 @@ def test_exclude_only_verified_b_share_listing_alias_firm_keys():
         "SSE:600190:1999-06-09",
         "SSE:600614:1992-08-28",
     ]
-    frame = pd.DataFrame({"firm_key": aliases + canonical + ["SSE:600001:2000-01-01"]})
+    unrelated_same_org = "SSE:600001:2000-01-01"
+    frame = pd.DataFrame(
+        {
+            "firm_key": aliases + canonical + [unrelated_same_org],
+            "source_org_code": ["shared-org"] * 7,
+        }
+    )
 
     result = exclude_verified_b_share_listing_aliases(frame)
 
-    assert result.firm_key.tolist() == canonical + ["SSE:600001:2000-01-01"]
+    assert result.firm_key.tolist() == canonical + [unrelated_same_org]
+    same_org_code = result.loc[
+        result.firm_key.eq(unrelated_same_org), "source_org_code"
+    ].item()
+    assert same_org_code == "shared-org"
     assert len(result) == 4

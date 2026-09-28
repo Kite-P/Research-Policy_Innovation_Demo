@@ -79,9 +79,9 @@ Google Patents BigQuery 已从正式来源撤销，不再要求认证。CNIPA �
 
 ## 4.2F 当前执行状态
 
-已使用 SSE、SZSE、BSE 当前列表及上海、深圳历史退市列表构建 2020—2025 firm-year universe，输出为本地 ignored 的 `data/processed/real_company_universe.parquet` 和 `.dta`。当前结果为 5,690 家企业、30,328 个合法 firm-year，其中当前企业 5,449 家、退市企业 241 家；BSE 2020 年观测已排除。
+已使用 SSE、SZSE、BSE 当前列表及上海、深圳历史退市列表构建 2020—2025 firm-year universe，输出为本地 ignored 的 `data/processed/real_company_universe.parquet` 和 `.dta`。初次结果为 5,690 家企业、30,328 个合法 firm-year；经后续 canonical A-share identity correction，当前 active universe 为 5,687 家企业、30,317 个合法 firm-year。BSE 2020 年观测已排除。
 
-Profile pilot 已从 CNINFO 切换至 EastMoney F10 `RPT_F10_BASIC_ORGINFO`。正式 Profile 全量返回 5,690 个 firm-level 记录，`ORG_NAME`、`PROVINCE`/`REG_ADDRESS`、`INDUSTRYCSRC1`、`EM2016` 和 `ORG_CODE` 均通过字段审计；不使用证券简称回填法人全称。`real_company_universe_enriched` 保持 30,328 行，Stata 主键与年份复核通过。
+Profile pilot 已从 CNINFO 切换至 EastMoney F10 `RPT_F10_BASIC_ORGINFO`。在身份键纠正前，EastMoney 历史 Profile 缓存有 5,690 个 firm-level 记录；`ORG_NAME`、`PROVINCE`/`REG_ADDRESS`、`INDUSTRYCSRC1`、`EM2016` 和 `ORG_CODE` 均通过字段审计，不使用证券简称回填法人全称。该缓存完整保留；当前 canonical active universe 为 5,687 家、30,317 个 firm-year。此前 `real_company_universe_enriched` 的 30,328 行属于纠正前规模，已被当前目标取代。
 
 ## 4.2F-E Profile 收口与财务覆盖 Gate
 
@@ -91,7 +91,7 @@ Profile pilot 已从 CNINFO 切换至 EastMoney F10 `RPT_F10_BASIC_ORGINFO`。�
 - EastMoney Schema probe、60 家分层 Profile pilot 和 5,690 家全量 enrichment；
 - Profile 缓存按 `firm_key` 保存，串行请求间隔不少于 0.8 秒，403/429/验证码响应立即停止；
 - 当前企业法定名称、省份和 CSRC 行业覆盖率均为 100%，ORG_CODE 非空率为 100%，省份冲突数为 0；
-- `real_company_universe_enriched.parquet` 与 `.dta` 已生成，30328 个 `firm_key + year` 无重复，年份为 2020—2025，交易所分布与原总体一致；
+- 当时 `real_company_universe_enriched.parquet` 与 `.dta` 已生成，纠正前 30,328 个 `firm_key + year` 无重复，年份为 2020—2025；该历史规模已由身份键复核后的 30,317 行目标取代；
 - 财务缓存键改为 `firm_key`，并增加资产负债表、利润表、员工指标可用性和结构化 `failure_reason` 字段；
 - 旧 50 家财务 pilot 已输出字段缺失分解；新的分层财务 pilot 实际为 70 家，因当前总体不存在 BSE 后 2021 新上市层；
 - 财务 Gate 结果：BSE 转板层、SZSE 当前层通过 90% 核心字段门槛；SSE 当前层和近期 IPO SSE 未通过，退市层也未通过。
