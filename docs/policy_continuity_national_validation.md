@@ -39,7 +39,7 @@
 
 ## 7. 地理覆盖与使用边界
 
-历史省份数据中 31 个内地地区均出现在全国政策语料中。26,395 个已识别内地 firm-years 均存在对应 province-year 政策指标；另有 2,142 个 firm-years 的历史省份为空，不作推断或填补。11 个香港 firm-years 标记为 `NON_MAINLAND_POLICY_SCOPE`，不匹配北京、广东、邻省或全国均值。潜在覆盖统计见 `results/policy_national/firm_policy_match_potential.csv`。
+历史省份数据中 31 个内地地区均出现在全国政策语料中。法律实体键纠正后，26,388 个已识别内地 firm-years 均存在对应 province-year 政策指标；另有 2,138 个 firm-years 的历史省份为空，不作推断或填补。11 个香港 firm-years 标记为 `NON_MAINLAND_POLICY_SCOPE`，不匹配北京、广东、邻省或全国均值。潜在覆盖统计见本地 `results/policy_national/firm_policy_match_potential.csv`；本轮只复核潜在覆盖，没有生成正式企业政策面板。
 
 本阶段只完成全国省份—年份政策指标及潜在地理覆盖审计；没有生成正式企业政策面板，没有进行 CNIPA、BSE 或回归。
 

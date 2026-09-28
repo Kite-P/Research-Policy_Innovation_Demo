@@ -112,12 +112,12 @@
 
 下一轮仅在用户明确指令后执行 `4.3F Full`，不得自动开始。
 
-## 4.3F-Full-Pipeline 真实财务全量抓取流水线
+## 4.3F-Full 当前状态（含身份键纠正）
 
-- Phase A 正式完成：5,272 家 SSE/SZSE 非金融企业、28,548 个 firm-year，53/53 个 chunk 完成。来源总体为 5,690 家、30,328 个 firm-year；BSE 和金融业企业不属于 Phase A。
-- 状态计数：5,008 `COMPLETE`、4 `PARTIAL`、260 `QUERY_FAILED`；`NOT_FETCHED=0`、`SOURCE_BLOCKED=0`。目标企业均保留，未按抓取结果删样本。
-- Finalizer 核验正式面板 5,272 家、28,548 行，重复键 0、非法上市/退市边界 firm-year 0，交易所仅 SSE/SZSE。Stata/MP 18 实际验证通过 firm-year 唯一性、年份、交易所、变量类型及派生变量有限值检查，sentinel 为 `FINANCIAL_SSE_SZSE_FULL_VALIDATION_PASS`。
-- 当前企业核心字段完整率：SSE 99.1688%，SZSE 99.4936%；当前企业 R&D 覆盖率分别为 92.3531% 和 95.4295%。核心质量 Gate 通过。完整面板核心字段缺失数见 `docs/full_financial_fetch_pipeline.md`。
-- BSE 状态仍为 `BSE_MAPPING_REQUIRED`，等待合法取得的官方新旧代码映射；132 家金融业企业保持排除。CNIPA、政策匹配和回归未执行。
+- 当前来源总体：5,687 家、30,317 个 firm-year；Phase A 为 5,269 家 SSE/SZSE 非金融企业、28,537 个 firm-year，53/53 个 chunk 完成。
+- 状态计数：5,008 `COMPLETE`、4 `PARTIAL`、257 `QUERY_FAILED`；`NOT_FETCHED=0`、`SOURCE_BLOCKED=0`。目标企业仍全部保留。
+- 财务面板由已存在的 firm_key 缓存重新组装；重复键和非法上市/退市边界观测为 0。当前 SSE/SZSE 核心字段完整率为 99.1688%/99.4936%，R&D 覆盖率沿用对应正式观测。
+- 身份审计确认 600555、600190、600614 的 B 股挂牌日期曾与 A 股代码组合为额外键；现保留 A 股挂牌键并移除 3 个伪重复 firm_key。没有重新抓取财务数据。BSE 仍为 `BSE_MAPPING_REQUIRED`，132 家金融业企业仍排除。
+- Stata 正式 `.dta` 已按新目标重导，但本轮未重新运行 Stata；sentinel `FINANCIAL_SSE_SZSE_FULL_VALIDATION_PASS` 是纠正前正式文件的既有执行记录，不作为纠正后文件的新验证结果。
 
-当前状态：`SSE_SZSE_FULL_FETCH_COMPLETE`。早期 200 家 canary 仅作为链路验证历史，不替代正式 Phase A 结果。
+当前抓取状态仍为 `SSE_SZSE_FULL_FETCH_COMPLETE`，其含义是缓存覆盖的纠正后沪深非金融目标已完成组装；该状态不代表 5,687 家来源总体全部完成，也不代表本轮重新执行了 Stata。

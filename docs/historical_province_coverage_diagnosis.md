@@ -1,17 +1,19 @@
 # 历史注册省份全量覆盖诊断与收口
 
+> 当前范围已按法律实体键纠正：5,269 家、28,537 个 firm-year。本文前段原因分解与来源目录统计仍指身份键纠正前的逐行诊断快照；当前覆盖 Gate 与分层数量以末尾 2026-09-28 更新为准。
+
 ## 结论
 
 目标为 5,272 家沪深非金融企业、28,548 个合法 firm-year。初始全量历史覆盖为 SSE 86.07%、SZSE 87.63%，低于两市分别 90% 的门槛；Pilot 为 92.61% 和 95.18%。全量样本包含更多年份、退市记录及长尾格式，因此报告检索失败和地址解析失败更充分地暴露。按真实缓存与公告标题审计修复后，当前 SSE 为 92.44%、SZSE 为 94.05%，Full Gate 通过。静态 Profile 未写入历史主变量，样本未删减。
 
 ## 可复现失败分解
 
-本地脚本 `scripts/diagnose_historical_province_coverage.py` 以现有全量面板及企业缓存生成逐 firm-year 文件 `results/historical_province/coverage_failure_decomposition.csv`，并输出按交易所、在市/退市、年度、近期 IPO 和原因聚合的 `coverage_failure_decomposition_summary.csv`。文件留在被忽略的本地 `results/`，不入库。分解以当前行状态优先，且仅把静态回退/缺失行归为未解决原因；因此不会把缓存中通用的 `unresolved_temporal_semantics` 错当作 27,000 多个失败。当前未解决行共 2,142：
+本地脚本 `scripts/diagnose_historical_province_coverage.py` 以现有全量面板及企业缓存生成逐 firm-year 文件 `results/historical_province/coverage_failure_decomposition.csv`，并输出按交易所、在市/退市、年度、近期 IPO 和原因聚合的 `coverage_failure_decomposition_summary.csv`。文件留在被忽略的本地 `results/`，不入库。分解以当前行状态优先，且仅把静态回退/缺失行归为未解决原因；因此不会把缓存中通用的 `unresolved_temporal_semantics` 错当作 27,000 多个失败。身份键纠正前该分解为 2,142 行；纠正后当前未解决行共 2,138：
 
 | 归因 | firm-year | 解释 |
 | --- | ---: | --- |
-| 年报中地址文本存在但省/市映射无法解析 | 1,559 | 保守保留静态回退/缺失；不按企业名、代码猜测 |
-| 年报未找到 | 486 | 包括报告检索缺失及当前检索源未返回可用正式年报 |
+| 年报中地址文本存在但省/市映射无法解析 | 1,558 | 保守保留静态回退/缺失；不按企业名、代码猜测 |
+| 年报未找到 | 483 | 包括报告检索缺失及当前检索源未返回可用正式年报 |
 | 年报已取得但注册地址字段未提取 | 93 | 文本层存在，但解析器未定位地址字段 |
 | 同级来源冲突 | 4 | 缺少足以确定年末省份的有效日期，保留 missing + conflict |
 
@@ -54,3 +56,7 @@ Pilot 仅有 50 家当前企业且时间/企业结构有限；它检验来源链
 只针对 1,122 家受影响企业刷新 1,758 个年报年度；其余合法历史缓存复用。共 5,272 家、28,548 firm-year、53/53 chunks；目标键完全相同，重复 0、非法交易所/年度 0、静态主变量违规 0。Stata/MP 18 已实际验证当前 `.dta`，sentinel 为 `HISTORICAL_PROVINCE_VALIDATION_PASS`。工程状态 `HISTORICAL_PROVINCE_FULL_COMPLETE` 与研究门槛 `HISTORICAL_PROVINCE_RESEARCH_GATE_PASS` 分开记录。
 
 当前比例：SSE current 92.44%（11,122/12,031），SZSE current 94.05%（14,672/15,600）；SSE delisted 67.80%（259/382），SZSE delisted 65.98%（353/535）；总体 92.50%（26,406/28,548）。本轮未进入省级政策补采、政策匹配、BSE、CNIPA 或回归。
+
+### 2026-09-28 当前目标更新
+
+纠正 3 个 B 股挂牌日期与 A 股代码误组合的别名后，历史省份面板与 Phase A 目标精确匹配 28,537/28,537 行：历史确认 23,937、推断 2,462、静态回退 2,106、缺失 32、冲突 4。总体历史覆盖为 26,399/28,537（92.51%）；SSE current 为 11,122/12,031（92.44%），SZSE current 为 14,672/15,600（94.05%）。SSE 退市层现为 92 家、371 行，确认/推断 252 行（67.92%）；其余分层行数不变。研究 Gate 仍为 `HISTORICAL_PROVINCE_RESEARCH_GATE_PASS`。本轮只筛选既有结果并重导 `.dta`，未重新运行 Stata；原 sentinel 只对应先前文件。

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
 import subprocess
@@ -83,6 +84,7 @@ class CNINFOAnnualReportClient:
         self._last_request = 0.0
         self._stock_catalog: dict[str, str] | None = None
         self.last_annual_report_query_audit: list[dict[str, object]] = []
+        self.last_name_change_query_audit: list[dict[str, object]] = []
         self.session.headers.update(
             {"User-Agent": "Mozilla/5.0", "Referer": "https://www.cninfo.com.cn/"}
         )
@@ -199,23 +201,118 @@ class CNINFOAnnualReportClient:
                 latest[year] = item
         return [latest[year] for year in sorted(latest)]
 
+    def list_company_name_change_announcements(
+        self,
+        stock_code: str,
+        start_date: str,
+        end_date: str,
+    ) -> list[dict[str, object]]:
+        """Search name-change notices for one known security; never infer orgId."""
+        code = str(stock_code).strip().zfill(6)
+        self.last_name_change_query_audit = []
+        org_id = self.stock_catalog().get(code)
+        if org_id is None:
+            return []
+        params = {
+            "pageNum": 1,
+            "pageSize": 30,
+            "column": "szse",
+            "tabName": "fulltext",
+            "plate": "",
+            "stock": f"{code},{org_id}",
+            "searchkey": "公司名称变更",
+            "secid": "",
+            "category": "",
+            "trade": "",
+            "seDate": f"{start_date}~{end_date}",
+            "sortName": "",
+            "sortType": "",
+            "isHLtitle": "true",
+        }
+        results: list[dict[str, object]] = []
+        page = 1
+        while page <= 20:
+            params["pageNum"] = page
+            response = self._request(
+                "POST", CNINFO_ANNOUNCEMENT_QUERY_URL, data=params
+            )
+            payload = response.json()
+            announcements = payload.get("announcements") or []
+            for item in announcements:
+                title = re.sub(
+                    r"<[^>]+>", "", str(item.get("announcementTitle", ""))
+                )
+                audit = {
+                    "stock_code": code,
+                    "title": title,
+                    "announcement_id": str(item.get("announcementId") or ""),
+                    "announcement_time": item.get("announcementTime"),
+                    "adjunct_url": item.get("adjunctUrl"),
+                }
+                self.last_name_change_query_audit.append(audit)
+                if not re.search(r"公司名称|名称变更|公司更名", title):
+                    continue
+                adjunct = item.get("adjunctUrl")
+                if not adjunct:
+                    continue
+                timestamp = item.get("announcementTime")
+                announcement_date = ""
+                if timestamp:
+                    announcement_date = datetime.fromtimestamp(
+                        int(timestamp) / 1000, tz=timezone.utc
+                    ).date().isoformat()
+                results.append(
+                    {
+                        "stock_code": code,
+                        "title": title,
+                        "announcement_id": str(item.get("announcementId") or ""),
+                        "announcement_date": announcement_date,
+                        "source_url": CNINFO_STATIC_BASE_URL
+                        + str(adjunct).lstrip("/"),
+                        "source_type": "official_name_change_announcement",
+                        "source_tier": "H2",
+                    }
+                )
+            total_pages = int(payload.get("totalpages") or 0)
+            if page >= total_pages or not announcements:
+                break
+            page += 1
+        return results
+
     def extract_pdf_text(self, source_url: str) -> str:
+        text, _ = self.extract_pdf_text_with_metadata(source_url)
+        return text
+
+    def extract_pdf_text_with_metadata(self, source_url: str) -> tuple[str, dict[str, object]]:
         response = self._request("GET", source_url)
-        if not response.content.startswith(b"%PDF-"):
+        payload = response.content
+        if not payload.startswith(b"%PDF-"):
             raise ValueError("CNINFO response is not a PDF document")
+        if len(payload) < 1024:
+            raise ValueError("CNINFO PDF response is too small")
         executable = shutil.which("pdftotext")
         if executable is None:
             raise RuntimeError("pdftotext is required for text-layer PDF extraction")
         result = subprocess.run(
             [executable, "-layout", "-", "-"],
-            input=response.content,
+            input=payload,
             capture_output=True,
             timeout=180,
             check=False,
         )
         if result.returncode != 0:
             raise RuntimeError(f"pdftotext failed with exit code {result.returncode}")
-        return result.stdout.decode("utf-8", errors="replace")
+        text = result.stdout.decode("utf-8", errors="replace")
+        if len(text.strip()) < 100:
+            raise ValueError("pdftotext produced empty or implausibly short text")
+        return text, {
+            "http_status": int(response.status_code),
+            "pdf_bytes": len(payload),
+            "pdf_sha256": hashlib.sha256(payload).hexdigest(),
+            "pdf_content_persisted": False,
+            "text_chars": len(text),
+            "extraction_method": "pdftotext_layout_text_layer",
+        }
 
     def fetch_firm_reports(
         self,

@@ -3,15 +3,19 @@
 ## 当前状态
 
 - 全量抓取状态：`SSE_SZSE_FULL_FETCH_COMPLETE`
-- 来源总体：5,690 家企业、30,328 个 firm-year
-- Phase A：5,272 家 SSE/SZSE 非金融企业、28,548 个 firm-year
+- 来源总体（身份键纠正后）：5,687 家企业、30,317 个 firm-year
+- Phase A：5,269 家 SSE/SZSE 非金融企业、28,537 个 firm-year
 - 分块：53/53 完成
-- 状态计数：5,008 `COMPLETE`、4 `PARTIAL`、260 `QUERY_FAILED`、0 `NOT_FETCHED`、0 `SOURCE_BLOCKED`
+- 状态计数：5,008 `COMPLETE`、4 `PARTIAL`、257 `QUERY_FAILED`、0 `NOT_FETCHED`、0 `SOURCE_BLOCKED`
 - 面板键：重复 `firm_key + year` 为 0；上市/退市日期边界之外的 firm-year 为 0
 - 当前企业核心字段完整率：SSE 99.1688%，SZSE 99.4936%，均通过 90% Gate
 - 当前企业 R&D 覆盖率：SSE 92.3531%，SZSE 95.4295%
 - 正式 Stata sentinel：`FINANCIAL_SSE_SZSE_FULL_VALIDATION_PASS`
 - BSE：`BSE_MAPPING_REQUIRED`；金融业企业：132 家，排除在 Phase A 之外
+
+### 身份键纠正
+
+后续官方来源核验发现 600555、600190、600614 的 B 股挂牌日期曾与 A 股代码组合成额外 firm_key。正式键现按法律实体保留 A 股挂牌日期，移除 3 个 B 股日期别名。财务面板从既有 firm_key 缓存重新组装，没有重新抓取；纠正后仍为 53 个 chunk，重复/非法键为 0，SSE/SZSE 当前核心覆盖率未变。此前 5,272 家、28,548 行是纠正前的历史规模，不再作为当前目标数。
 
 Phase A 仅覆盖 SSE/SZSE 非金融企业，不代表来源总体 5,690 家全部完成财务抓取。失败的退市企业保留在目标面板及状态汇总中，不因失败而从研究总体删除。
 
@@ -26,7 +30,7 @@ Phase A 仅覆盖 SSE/SZSE 非金融企业，不代表来源总体 5,690 家全�
 - Finalizer 核对 manifest、run state、53 个 chunk、firm 状态及合法 firm-year 集合后，生成正式 parquet 和 Stata `.dta`。
 - Stata/MP 18 实际验证通过 `isid firm_key year`、2020—2025 年份、交易所范围、变量数值类型及派生变量有限值检查。
 - 总面板核心字段缺失数（含退市企业）：资产 1,092；负债 1,092；现金 1,092；营业收入 1,095；净利润 1,092；员工人数 1,093。退市样本缺失按观测保留，不补零。
-- Stata 面板规模：5,272 家、28,548 个 firm-year；SSE 12,413 行、SZSE 16,135 行。
+- Stata 文件已按纠正后的 5,269 家、28,537 个 firm-year 从既有面板重导；本轮未重新执行 Stata，因此既有 sentinel 仅说明纠正前完整 Stata 校验通过，不作为纠正后 `.dta` 的新执行结果。
 
 ## 早期 Canary
 

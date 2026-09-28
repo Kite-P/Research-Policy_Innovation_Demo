@@ -2,42 +2,52 @@
 
 ## 范围与结论
 
-本阶段仅为正式专利数据访问前的实体名称和查询批次预检。目标集合严格来自沪深非金融企业正式 Phase A 面板：5,272 家企业、28,548 个合法 firm-year。目标 `firm_key` 与正式 Phase A manifest 完全一致，并与 enriched Profile 的 firm 集合逐一核对；没有因名称缺失删除企业。
+目标来自完成身份键纠正后的沪深非金融企业 Phase A：5,269 家、28,537 个 2020—2025 firm-year。主窗口 2020—2024 为 23,448 行；2025 年 5,089 行仅作覆盖审计。目标键与本地正式 manifest、财务面板和历史省份面板逐行一致。来源总体为 5,687 家、30,317 行；BSE 286 家仍待官方映射，金融业企业 132 家继续排除。
 
-当前状态为 `CNIPA_ENTITY_NAME_NEEDS_FIX`。当前法人全称可覆盖全部目标，但历史名称候选尚未完成充分核验，且名称碰撞的专利结果归属仍未解决。因此，查询准备文件只含已核实的当前法人全称及少量有证据的历史法人全称；本状态不代表可开始正式专利采集。
+身份审计确认 600555、600190、600614 的早期挂牌日期分别属于同一发行人的 B 股，而旧 firm_key 错用了 A 股代码。正式目标现保留 A 股挂牌键、排除 3 个经官方年报及同一 ORG_CODE/年报公告序列确认的 B 股日期别名。旧正式财务缓存及历史省份观测均已复用，不重新抓取。此纠正使总体和下游面板目标计数相应减少；三个身份别名不再形成名称碰撞或重复赋权。
 
-## 名称来源及试点审查
+当前状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`。当前法人名称覆盖 5,269/5,269；但主窗口仍有 353 个名称时间关系未决，695 行没有可用法人名称提取结果，部分报告未找到或解析失败。因此，本报告不认定历史法人名称 universe 已达到正式专利采集 Gate。
 
-当前法人名称取自 EastMoney F10 `ORG_NAME`，并要求 Profile 状态、来源字段及组织代码通过检查。目标企业中 5,272/5,272 有当前法人全称。当前名称以 `PROFILE_CURRENT` 单独记录来源，不将其误标为历史名称 H1—H3。
+## 名称来源与字段语义
 
-本轮对 `RPT_F10_BASIC_ORGINFO` 做字段级复核：在同一记录结构中，`ORG_NAME` 提供当前法人全称，`FORMERNAME` 提供曾用证券简称链；按固定 seed `20260927` 从现有 pilot 抽取 12 家，通过公开接口复现字段值，其中包含 `G`、`ST`、`*ST` 等简称变体。再与交易所/年度报告中的“股票简称/证券简称”和法人名称字段交叉核对。字段语义冻结为 `FORMER_SECURITY_NAME_ONLY`；6,438 条 `FORMERNAME` 企业—候选记录整体标为 `rejected_stock_abbreviation / REJECTED`，全部 `query_eligible=0`。这不是逐条名称搜索，也不把这些简称用作历史法人全称。接口字段可从[EastMoney F10 数据接口](https://datacenter.eastmoney.com/securities/api/data/v1/get?reportName=RPT_F10_BASIC_ORGINFO)复核。
+当前法人名称来自 EastMoney F10 `ORG_NAME`，并经过 Profile、来源字段和组织代码一致性核验。EastMoney `FORMERNAME` 已冻结为 `FORMER_SECURITY_NAME_ONLY`，不得作为历史法人名称来源。现有 2,306 家企业对应 6,417 条 `FORMERNAME` 候选全部标记为 `rejected_stock_abbreviation / REJECTED`，`query_eligible=0`。
 
-按 seed `20260927` 分层抽样后，pilot 合并去重为 61 家，覆盖 SSE/SZSE 当前企业、SSE/SZSE 退市企业、`FORMERNAME` 非空、含多个简称及经正式材料识别的法人更名案例。另有 2 个历史法人全称在正式披露来源中核实，涉及 1 家企业，日期仅记录到年份并标记时间匹配不确定。没有把简称扩写或当作法人名称。
+年报抽取器使用 CNINFO 正式年度报告正文，并区分法人全称与证券简称。固定 seed 的既有 Pilot 为 92 家、461 个 firm-year；425 份报告成功取得，423 个名称完成上下文人工复核，名称精确率 100%，证券简称误判 0%，缺失率 8.24%。5 个名称变更相关 Pilot 案例中，变更标记及旧/新名称解析各有 3/5 完全匹配（60%）；Pilot 结果不被当作 Full 的质量通过证明。
 
-在 5,272 家目标中，`FORMERNAME` 非空的有 2,309 家，共拆分出 6,438 条企业—候选名称记录；本轮已按字段语义整体拒绝 6,438 条，均不可查询。名称规范化仅执行 Unicode NFKC、空白规整及确定性去重，不删减或补加法人组织形式。
+## 2020—2024 年报证据恢复
 
-## firm-year 法人名称覆盖
+Full 目标与 status 键集合精确一致，共 23,448 行。处理复用了 Historical Province 的 CNINFO 报告索引、已保存的年报证据和本地状态缓存；本轮身份纠正只筛除错误 firm_key 并重新汇总，没有重新下载报告。
 
-目标财务面板含 28,548 个 2020–2025 firm-year；主窗口 2020–2024 为 23,458 个 firm-year。既有 Historical Province 缓存保存了报告年份、CNINFO 来源链接和注册地址抽取结果，但没有保留年度报告正文/PDF，也没有可复用的法人名称抽取文本。因此本轮没有将当前 Profile 名称回填为历史年度名称；本地 ignored 文件 `results/cnipa_preflight/entity_year_name_coverage.csv` 将 23,458 个主窗口 firm-year 标记为 `REPORT_UNAVAILABLE`，其中有报告元数据/链接也不视作名称证据。主窗口可验证年报法人名称覆盖为 0/23,458；`temporal_unresolved=23,458`。已有 2 个正式来源核实的历史法人全称仍保留在名称库，但不足以证明总体年度覆盖。
+| 指标 | 结果 |
+| --- | ---: |
+| 报告成功获取 | 22,991 |
+| 抽取到法人名称 | 22,753 |
+| `CONFIRMED_YEAR_END_NAME_ONLY` | 22,256 |
+| `CONFIRMED_NAME_CHANGE` | 126 |
+| `CONFIRMED_NO_CHANGE` | 18 |
+| `TEMPORAL_UNRESOLVED` | 353 |
+| `REPORT_NOT_FOUND` | 444 |
+| `LEGAL_NAME_EXTRACTION_FAILED` | 238 |
+| `REPORT_FETCH_FAILED` | 13 |
+| `SOURCE_BLOCKED` | 0 |
 
-## 名称碰撞
+以上 coverage 状态互斥且合计 23,448。即使底层抽取状态为 `COMPLETE_NO_CHANGE`，若时间证据同时为 `TEMPORAL_UNRESOLVED`，coverage 仍按时间未决计，不作已确认解释。年报证据的 URL、公告编号、PDF 哈希、名称上下文及失败原因仅留在 ignored 本地结果。
 
-发现 6 组规范化名称对应多个 `firm_key`。逐组核对 `ORG_CODE`、证券代码与上市/退市区间后，3 组属于同一组织代码对应不同证券代码，状态记为 `RESOLVED_SHARED_QUERY_TEMPORAL_ALLOCATION`：查询名称共享一次、保留全部 firm_key 映射，后续按上市实例/申请日期处理。另 3 组为同一证券键对应多个 firm_key，日期属性存在冲突，无法从现有元数据证明权威 listing key，保持 `UNRESOLVED`。没有合并 firm_key；未决组禁止自动归属专利结果。
+## 2025 覆盖审计
 
-## 查询批次 Gate
+2025 年 5,089 个目标 firm-year 中，报告成功获取 5,013 个，抽取到法人名称 4,967 个。状态为：4,826 `CONFIRMED_YEAR_END_NAME_ONLY`、37 `CONFIRMED_NAME_CHANGE`、7 `CONFIRMED_NO_CHANGE`、97 `TEMPORAL_UNRESOLVED`、68 `REPORT_NOT_FOUND`、46 `LEGAL_NAME_EXTRACTION_FAILED`、8 `REPORT_FETCH_FAILED`；来源封锁为 0。该年度不进入主专利 outcome window。
 
-查询名单仅使用 `query_eligible=1` 的名称：5,272 个当前法人名称及 2 个经验证的历史法人名称，合并后为 5,268 个唯一名称；企业映射 5,274 条。分为 264 个批次。自动 Gate 确认每个 eligible 名称恰好进入一个批次，批内不重复、每批不超过 20 个名称，渲染查询字符串不超过 1,500 字符；本轮观察到的最大长度为 374 字符。6,438 条 `FORMERNAME` 候选均排除；碰撞名称保留完整映射，3 组仍标记未决。
+## 历史名称、碰撞与查询批次
 
-`max_names=20`、`max_chars=1500` 仅是项目预设，尚未在合法 CNIPA 访问中验证，因此状态仍为 `CNIPA_QUERY_LIMIT_UNCONFIRMED`。查询批次和企业名称明细只保存在 ignored 本地文件中。
+正式披露支持的历史法人全称共 3 个，涉及 2 家企业；未验证的前名不进入查询。纠正身份键后，预检保留 3 组规范化名称碰撞，均为不同证券代码间共享查询名并保留完整映射；未解决碰撞组为 0。名称碰撞只解决到名称查询与实体映射层，不代表专利结果已取得或完成按申请日期归属。
 
-## 限制与边界
+当前查询预检包含 5,269 个唯一可查询名称、5,272 条名称—firm_key 映射及 264 个确定性批次；每个名称恰好进入一个批次，最大查询字符串长度为 374。`max_names=20`、`max_chars=1500` 仍为未在 CNIPA 页面实测的项目参数，状态为 `CNIPA_QUERY_LIMIT_UNCONFIRMED`。
 
-- 2020–2024 主窗口 23,458 个 firm-year 均缺少本地年报正文/名称证据；历史法人名称覆盖不可评估为完整，故 Gate 不通过。
-- 因本地未留存年度报告正文，本轮未构建或声称验证通用年报法人名称/报告期内更名抽取器；不得用合成 fixture 代替实际来源验证。补齐正式正文后再实现并测试名称、变更前后名称及生效时间抽取。
-- 6 组碰撞中 3 组已确认为同一组织代码的不同证券实例并保留共享查询映射；另 3 组同证券键/多 firm_key 疑点未决，尚不能判定权威 listing key。
-- `zero_semantics` 和 `missing_semantics` 仍为 `pending`；CNIPA 无搜索结果不能据此编码为零。
-- 本轮未登录 CNIPA、未导出或下载专利，未做企业—专利匹配、正式研究面板、BSE 处理、政策匹配或回归。
-- 企业级名称、证据、碰撞明细、pilot 和查询批次均为本地 ignored 数据，不纳入版本控制。
-- 本轮完整 pytest：265 passed，0 failed（2026-09-27）。
-- Ruff：`All checks passed!`；依赖检查：116 packages compatible；push hygiene：通过。
-- 2025 coverage audit：5,090 个目标 firm-year，5,090 个均因本地无年报正文而标为 `REPORT_UNAVAILABLE`；不将报告链接误作名称证据。
+## Gate 与边界
+
+- 当前法人名称覆盖完整，`FORMERNAME` 语义保持冻结，全部证券简称候选排除。
+- 三个 B/A 双重挂牌实体的伪重复键已纠正，财务与历史省份面板均已按新目标重建；历史省份 Gate 通过。
+- 仍有 353 个主窗口时间关系未决及 695 个主窗口 firm-year 未抽取到年报法人名称，故维持 `CNIPA_ENTITY_NAME_NEEDS_FIX`。
+- `zero_semantics`、`missing_semantics` 仍为 `pending`；没有 CNIPA 登录、专利检索/下载、企业—专利归属或回归。
+- 企业级名称、逐年证据、碰撞详情、PDF 哈希和 query 明细均为本地 ignored 数据，不纳入版本控制。
+- 本轮 pytest：292 passed；Ruff：`All checks passed!`；116 个依赖兼容；推送卫生和 Markdown 检查通过。

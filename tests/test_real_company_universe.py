@@ -1,6 +1,7 @@
 import pandas as pd
 
 from src.build_real_company_universe import (
+    exclude_verified_b_share_listing_aliases,
     expand_firm_years,
     standardize_delisted_frame,
     standardize_listing_frame,
@@ -90,3 +91,22 @@ def test_bse_native_has_no_predecessor_date():
     )
     assert pd.isna(frame.loc[0, "predecessor_listing_date"])
     assert frame.loc[0, "market_listing_date"] == pd.Timestamp("2022-01-01")
+
+
+def test_exclude_only_verified_b_share_listing_alias_firm_keys():
+    aliases = [
+        "SSE:600555:1999-01-18",
+        "SSE:600190:1998-05-19",
+        "SSE:600614:1992-07-28",
+    ]
+    canonical = [
+        "SSE:600555:2001-03-28",
+        "SSE:600190:1999-06-09",
+        "SSE:600614:1992-08-28",
+    ]
+    frame = pd.DataFrame({"firm_key": aliases + canonical + ["SSE:600001:2000-01-01"]})
+
+    result = exclude_verified_b_share_listing_aliases(frame)
+
+    assert result.firm_key.tolist() == canonical + ["SSE:600001:2000-01-01"]
+    assert len(result) == 4

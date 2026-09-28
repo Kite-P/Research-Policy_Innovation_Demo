@@ -15,6 +15,25 @@ START_YEAR = 2020
 END_YEAR = 2025
 BSE_MARKET_START = pd.Timestamp("2021-11-15")
 
+# These B-share first-listing dates were incorrectly paired with their issuer's
+# A-share stock code in the upstream listing history. Retain the A-share key only.
+VERIFIED_B_SHARE_LISTING_ALIAS_KEYS = frozenset(
+    {
+        "SSE:600555:1999-01-18",
+        "SSE:600190:1998-05-19",
+        "SSE:600614:1992-07-28",
+    }
+)
+
+
+def exclude_verified_b_share_listing_aliases(frame: pd.DataFrame) -> pd.DataFrame:
+    """Drop only the three verified B-share date aliases of A-share firm keys."""
+    if "firm_key" not in frame:
+        raise ValueError("firm universe lacks firm_key")
+    return frame.loc[
+        ~frame["firm_key"].astype(str).isin(VERIFIED_B_SHARE_LISTING_ALIAS_KEYS)
+    ].copy()
+
 
 def _code(value: object) -> str:
     text = str(value).strip()
@@ -171,7 +190,9 @@ def build_universe(mapping_path: Path | None = None) -> tuple[pd.DataFrame, dict
     current = fetch_exchange_listings()
     delisted = fetch_delisted_listings()
     firms = filter_firm_universe(
-        pd.concat([current, delisted], ignore_index=True).drop_duplicates("firm_key")
+        exclude_verified_b_share_listing_aliases(
+            pd.concat([current, delisted], ignore_index=True).drop_duplicates("firm_key")
+        )
     )
     mapping = (
         load_bse_mapping(mapping_path)

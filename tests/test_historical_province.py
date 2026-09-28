@@ -327,6 +327,54 @@ def test_cninfo_query_audit_counts_legacy_rejections_and_keeps_full_reports():
     assert len(client.last_annual_report_query_audit) == 3
 
 
+def test_cninfo_name_change_search_is_limited_to_one_exact_security_and_period():
+    class Response:
+        def json(self):
+            return {
+                "totalpages": 0,
+                "announcements": [
+                    {
+                        "announcementTitle": (
+                            "关于<em>变更</em><em>公司</em><em>名称</em>"
+                            "暨完成工商登记的公告"
+                        ),
+                        "announcementId": "notice-1",
+                        "announcementTime": 1723542010000,
+                        "adjunctUrl": "finalpage/2024-08-13/name.pdf",
+                    },
+                    {
+                        "announcementTitle": "董事会会议决议公告",
+                        "announcementId": "notice-2",
+                        "announcementTime": 1723542010000,
+                        "adjunctUrl": "finalpage/2024-08-13/other.pdf",
+                    },
+                ],
+            }
+
+    class StubClient(CNINFOAnnualReportClient):
+        def stock_catalog(self):
+            return {"300237": "org-exact"}
+
+        def _request(self, method, url, **kwargs):
+            assert method == "POST"
+            params = kwargs["data"]
+            assert params["stock"] == "300237,org-exact"
+            assert params["searchkey"] == "公司名称变更"
+            assert params["seDate"] == "2024-01-01~2024-12-31"
+            return Response()
+
+    client = StubClient(Path("unused"), sleep=lambda _: None)
+    results = client.list_company_name_change_announcements(
+        "300237", "2024-01-01", "2024-12-31"
+    )
+
+    assert len(results) == 1
+    assert results[0]["announcement_date"] == "2024-08-13"
+    assert results[0]["source_tier"] == "H2"
+    assert results[0]["source_url"].endswith("/2024-08-13/name.pdf")
+    assert len(client.last_name_change_query_audit) == 2
+
+
 def _gate_panel(sse_covered, szse_covered):
     rows = []
     for exchange, covered in (("SSE", sse_covered), ("SZSE", szse_covered)):

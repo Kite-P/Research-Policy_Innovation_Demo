@@ -72,7 +72,7 @@ def run(args: argparse.Namespace) -> int:
     universe = pd.read_parquet(args.universe)
     target = build_historical_province_target(universe)
     firms = target.sort_values("firm_key").drop_duplicates("firm_key").reset_index(drop=True)
-    if len(firms) != 5272 or len(target) != 28548:
+    if firms["firm_key"].duplicated().any() or target.duplicated(["firm_key", "year"]).any():
         raise ValueError(f"FULL_TARGET_MISMATCH firms={len(firms)} firm_years={len(target)}")
     chunk_members = assign_historical_province_chunks(firms, chunk_size=CHUNK_SIZE)
     target_fingerprint = pd.util.hash_pandas_object(
