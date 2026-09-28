@@ -89,7 +89,7 @@
 - BSE transferred 与 native 均单独保留；由于官方新旧代码映射仍未取得，标记为 `BSE_GATE_PENDING_MAPPING`，不阻塞 SSE/SZSE 主 Gate。
 - EastMoney `province` 仍是 static Profile，不作为已解决的 historical firm-year province；正式政策匹配前仍需另行冻结省份口径。
 
-当前阶段状态：`READY_FOR_FULL_FINANCIAL_FETCH`。本轮未启动全市场抓取、政策匹配、CNIPA 下载或真实回归。
+当时 Pilot Gate 状态为 `READY_FOR_FULL_FINANCIAL_FETCH`；这是历史决策，之后已由 Phase A full fetch supersede。本轮未启动全市场抓取、政策匹配、CNIPA 下载或真实回归。
 
 ## Blocking Issues
 
@@ -108,9 +108,9 @@
 - 退市 SSE/SZSE：分别单独报告，失败不影响主 Gate。
 - BSE transferred/native：分别单独报告，状态保持 `BSE_MAPPING_REQUIRED`；未使用前三位转换，也未伪造 mapping。
 - 缓存第二次运行 100/100 命中；未重新请求 API。
-- Stata pilot 校验通过；全市场 5690 家正式财务抓取尚未执行。
+- Pilot 阶段 Stata 校验通过；当时 5690 家正式财务抓取尚未执行。该 Pilot 状态已被后续 Phase A full fetch supersede。
 
-当前阶段状态：`READY_FOR_FULL_FINANCIAL_FETCH`。
+当时 Pilot Gate 状态：`READY_FOR_FULL_FINANCIAL_FETCH`（历史状态，已被后续 Phase A full fetch supersede）。
 
 下一轮仅在用户明确指令后执行 `4.3F Full`，不得自动开始。
 

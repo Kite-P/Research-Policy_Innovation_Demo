@@ -23,7 +23,7 @@ source_access_status,CNIPA_REGISTRATION_REQUIRED,pending,CNIPA is the selected f
 free_profile_source,EastMoney F10 RPT_F10_BASIC_ORGINFO,frozen_for_profile_gate,Historical cache retains 5690 records; active canonical A-share target has 5687 firms and 30317 firm-years after excluding 3 verified B-share listing-date aliases
 free_financial_source,AKShare/EastMoney public statements,frozen_for_pilot,Core financial fields resolved on 60 of 60 pilot firm-years; R&D is 57 of 60
 free_employee_source,AKShare/EastMoney F10 indicator,frozen_for_pilot,STAFF_NUM returned for 60 of 60 pilot firm-years and varied across all 20 firms
-free_financial_core_status,READY_FOR_FULL_FINANCIAL_FETCH,pilot_audit_complete,SSE and SZSE current nonfinancial core coverage both meet the 90 percent gate; BSE remains separately pending official mapping
+free_financial_core_status,READY_FOR_FULL_FINANCIAL_FETCH,historical_pilot_gate,"SSE and SZSE current nonfinancial core coverage passed the pilot gate; this is a historical pilot decision, not the current fetch status. Use full_financial_pipeline_status and full_financial_fetch_status, both SSE_SZSE_FULL_FETCH_COMPLETE, for the formal Phase A status"
 free_employee_status,partial_by_stratum,pilot_audit_complete,Employee coverage is retained as observed and missingness is not recoded to zero
 free_patent_source,CNIPA official patent data,pending_user_registration,Formal collection requires user registration; no automated patent download in this phase
 patent_entity_scope,listed_entity_only,frozen_for_primary,Use listed legal entity and verified historical legal names; do not add subsidiaries or aliases automatically
