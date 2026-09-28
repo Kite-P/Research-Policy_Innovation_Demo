@@ -3,15 +3,25 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 _LEGAL_SUFFIX = re.compile(r"(?:股份有限公司|有限责任公司|有限公司|股份公司)$")
 _LEGAL_LABELS = (
-    "公司的中文名称", "公司中文名称", "公司名称", "公司全称",
+    "公司的中文名称",
+    "公司中文名称",
+    "公司名称",
+    "公司全称",
 )
 _SHORT_LABELS = (
-    "公司的中文简称", "公司中文简称", "公司简称", "证券简称", "股票简称",
-    "A股简称", "英文简称", "外文名称", "英文名称",
+    "公司的中文简称",
+    "公司中文简称",
+    "公司简称",
+    "证券简称",
+    "股票简称",
+    "A股简称",
+    "英文简称",
+    "外文名称",
+    "英文名称",
 )
 _FIELD_LABEL = re.compile(
     r"(?:公司的中文名称|公司中文名称|中文名称|公司名称|公司全称|"
@@ -53,7 +63,7 @@ def _label_value_with_evidence(
             pos = line.find(label)
             if pos < 0:
                 continue
-            remainder = line[pos + len(label):]
+            remainder = line[pos + len(label) :]
             # A short-name label must not match the contained legal-name label.
             if any(short in line[:pos] for short in _SHORT_LABELS):
                 continue
@@ -99,9 +109,7 @@ def extract_annual_report_legal_name_evidence(
         "evidence_context": "",
     }
     leading_lines = [line.strip() for line in text.splitlines()[:100] if line.strip()]
-    observed_title = next(
-        (line for line in leading_lines if "年度报告" in line), ""
-    )
+    observed_title = next((line for line in leading_lines if "年度报告" in line), "")
     title_for_check = title or observed_title
     result["source_report_title"] = title_for_check
     observed_year_match = re.search(r"(20\d{2})\s*年?年度报告", observed_title)
@@ -140,10 +148,7 @@ def extract_annual_report_legal_name_evidence(
         "报告期内公司名称变更情况",
     )
     change_line = next(
-        (
-            line for line in lines[:350]
-            if any(label in line for label in flag_labels)
-        ),
+        (line for line in lines[:350] if any(label in line for label in flag_labels)),
         "",
     )
     if change_line:
@@ -159,7 +164,8 @@ def extract_annual_report_legal_name_evidence(
 
     change_section_start = next(
         (
-            index for index, line in enumerate(lines)
+            index
+            for index, line in enumerate(lines)
             if (
                 re.match(r"\s*[（(][一二三四五六七八九十]+[）)]", line)
                 or re.match(r"\s*[一二三四五六七八九十]+[、.．]", line)
@@ -172,7 +178,8 @@ def extract_annual_report_legal_name_evidence(
     if change_section_start >= 0:
         change_section_end = next(
             (
-                index for index in range(change_section_start + 1, len(lines))
+                index
+                for index in range(change_section_start + 1, len(lines))
                 if re.match(r"\s*[（(][一二三四五六七八九十]+[）)]", lines[index])
             ),
             len(lines),
@@ -235,12 +242,15 @@ def extract_annual_report_legal_name_evidence(
     if issuer_change_match:
         result["legal_name_previous"] = issuer_change_match.group(1)
         result["legal_name_new"] = issuer_change_match.group(2)
-        date_matches = list(re.finditer(
-            r"(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日",
-            issuer_change_line,
-        ))
+        date_matches = list(
+            re.finditer(
+                r"(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日",
+                issuer_change_line,
+            )
+        )
         dates_before_event = [
-            candidate for candidate in date_matches
+            candidate
+            for candidate in date_matches
             if candidate.end() <= issuer_change_match.start()
         ]
         if dates_before_event:
@@ -303,16 +313,14 @@ def extract_annual_report_legal_name_evidence(
         if result["company_name_change_flag"] == "UNKNOWN":
             if change_year == expected_year:
                 result["company_name_change_flag"] = "YES"
-            elif change_year == expected_year + 1:
+            else:
                 result["company_name_change_flag"] = "NO"
 
     if result["company_name_change_flag"] == "NO" and legal:
         result.update(
             evidence_status="CONFIRMED_NO_CHANGE",
             date_precision=(
-                result["date_precision"]
-                if result["change_effective_date"]
-                else "year"
+                result["date_precision"] if result["change_effective_date"] else "year"
             ),
             valid_from=(
                 str(expected_year)
@@ -371,9 +379,7 @@ def extract_company_name_change_announcement(
 ) -> dict[str, object]:
     """Validate an H2 notice for one known issuer and recover an explicit date."""
     compact = re.sub(r"\s+", "", unicodedata.normalize("NFKC", text))
-    previous = re.sub(
-        r"\s+", "", unicodedata.normalize("NFKC", previous_legal_name)
-    )
+    previous = re.sub(r"\s+", "", unicodedata.normalize("NFKC", previous_legal_name))
     new = re.sub(r"\s+", "", unicodedata.normalize("NFKC", new_legal_name))
     result: dict[str, object] = {
         "previous_legal_name": previous_legal_name,
@@ -389,8 +395,10 @@ def extract_company_name_change_announcement(
     if not previous or not new or previous == new:
         result["failure_reason"] = "invalid_old_new_name_pair"
         return result
-    if previous not in compact or new not in compact or not re.search(
-        r"名称.{0,50}(?:变更|更名)|(?:变更|更名).{0,50}名称", compact
+    if (
+        previous not in compact
+        or new not in compact
+        or not re.search(r"名称.{0,50}(?:变更|更名)|(?:变更|更名).{0,50}名称", compact)
     ):
         result["failure_reason"] = "notice_does_not_confirm_expected_name_pair"
         return result
@@ -422,10 +430,7 @@ def extract_company_name_change_announcement(
         )
         date_match = date_pattern.search(compact)
     if not date_match:
-        if (
-            "完成公司名称变更" in compact
-            and announcement_date[:4] == str(expected_year)
-        ):
+        if "完成公司名称变更" in compact and announcement_date[:4] == str(expected_year):
             result.update(
                 date_precision="year",
                 company_name_change_flag="YES",
@@ -480,7 +485,8 @@ def validate_pdf_payload(
     elif len(payload) < minimum_bytes:
         failure = "pdf_too_small"
     return {
-        "http_status": int(http_status), "pdf_bytes": len(payload),
+        "http_status": int(http_status),
+        "pdf_bytes": len(payload),
         "pdf_sha256": hashlib.sha256(payload).hexdigest() if not failure else "",
         "failure_reason": failure,
     }
@@ -490,6 +496,227 @@ def validate_firm_year_status_set(
     target: Iterable[tuple[str, int]], status: Iterable[tuple[str, int]]
 ) -> bool:
     return set(target) == set(status)
+
+
+def is_change_related_candidate(
+    row: Mapping[str, object], *, adjacent_year_name_change: bool = False
+) -> bool:
+    """Identify Pilot firm-year rows needing change-event review."""
+    previous = str(row.get("legal_name_previous", "") or "").strip()
+    new = str(row.get("legal_name_new", "") or "").strip()
+    tier = str(row.get("change_evidence_tier", "") or "").upper()
+    evidence_url = str(row.get("change_evidence_url", "") or "").strip()
+    status = str(row.get("evidence_status", "") or "").upper()
+    reason = str(row.get("failure_reason", "") or "")
+    legacy_review = str(row.get("change_case_reviewed", "") or "").upper()
+    context = str(row.get("evidence_context", "") or "")
+    parser_pattern = bool(
+        re.search(r"(?:公司名称|公司全称|本公司).{0,40}(?:由|从).{0,80}(?:变更为|更名为)", context)
+    )
+    unresolved_name_change = status == "TEMPORAL_UNRESOLVED" and bool(
+        re.search(r"名称|name|legal|issuer", reason, re.IGNORECASE)
+    )
+    return bool(
+        str(row.get("company_name_change_flag", "")).upper() == "YES"
+        or previous
+        or new
+        or tier == "H2"
+        or evidence_url
+        or unresolved_name_change
+        or adjacent_year_name_change
+        or legacy_review == "YES"
+        or parser_pattern
+    )
+
+
+def build_canonical_change_event_roster(
+    rows: Iterable[Mapping[str, object]],
+) -> tuple[list[dict[str, object]], dict[str, str]]:
+    """Build event identities without conflating event counts and row counts."""
+    ordered = sorted(
+        (dict(row) for row in rows),
+        key=lambda item: (str(item.get("firm_key", "")), str(item.get("year", ""))),
+    )
+    row_keys = [(str(row.get("firm_key", "")), str(row.get("year", ""))) for row in ordered]
+    if len(row_keys) != len(set(row_keys)):
+        raise ValueError("DUPLICATE_CHANGE_CANDIDATE_ROW_KEY")
+    parent = list(range(len(ordered)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def official(row: Mapping[str, object]) -> bool:
+        return str(row.get("change_evidence_tier", "")).upper() in {"H1", "H2"} and str(
+            row.get("change_evidence_url", "")
+        ).startswith("https://")
+
+    def basis(row: Mapping[str, object]) -> tuple[str, str]:
+        if not official(row):
+            return "", ""
+        precision = str(row.get("date_precision", "")).lower()
+        effective = str(row.get("change_effective_date", "") or "")
+        if precision == "exact_date" and re.fullmatch(r"20\d{2}-\d{2}-\d{2}", effective):
+            return "exact", effective
+        if precision == "year":
+            event_year = (
+                effective[:4] if re.fullmatch(r"20\d{2}", effective) else str(row.get("year", ""))
+            )
+            source_id = str(row.get("change_announcement_id", "") or "") or str(
+                row.get("change_evidence_url", "") or ""
+            )
+            return ("year", f"{event_year}|{source_id}") if source_id else ("", "")
+        return "", ""
+
+    for left in range(len(ordered)):
+        a = ordered[left]
+        a_base = (
+            str(a.get("firm_key", "") or ""),
+            str(a.get("legal_name_previous", "") or ""),
+            str(a.get("legal_name_new", "") or ""),
+        )
+        if not all(a_base):
+            continue
+        for right in range(left + 1, len(ordered)):
+            b = ordered[right]
+            b_base = (
+                str(b.get("firm_key", "") or ""),
+                str(b.get("legal_name_previous", "") or ""),
+                str(b.get("legal_name_new", "") or ""),
+            )
+            if a_base != b_base or not official(a) or not official(b):
+                continue
+            ann_a = str(a.get("change_announcement_id", "") or "")
+            ann_b = str(b.get("change_announcement_id", "") or "")
+            basis_a, value_a = basis(a)
+            basis_b, value_b = basis(b)
+            corroborated = bool(
+                (ann_a and ann_a == ann_b)
+                or (basis_a == basis_b == "exact" and value_a == value_b)
+                or (basis_a == basis_b == "year" and value_a == value_b)
+            )
+            if corroborated:
+                parent[find(right)] = find(left)
+
+    groups: dict[int, list[dict[str, object]]] = {}
+    for index, row in enumerate(ordered):
+        groups.setdefault(find(index), []).append(row)
+
+    event_groups: list[tuple[str, list[dict[str, object]], str]] = []
+    for members in groups.values():
+        members = sorted(
+            members,
+            key=lambda item: (str(item.get("firm_key", "")), str(item.get("year", ""))),
+        )
+        first = members[0]
+        bases = sorted(
+            {f"{kind}:{value}" for item in members for kind, value in [basis(item)] if kind}
+        )
+        announcement_ids = sorted(
+            {
+                str(item.get("change_announcement_id", "") or "")
+                for item in members
+                if str(item.get("change_announcement_id", "") or "")
+            }
+        )
+        if announcement_ids:
+            link_basis = "announcement:" + "|".join(announcement_ids)
+        elif bases:
+            link_basis = "|".join(bases)
+        else:
+            link_basis = "row:" + ";".join(
+                sorted(f"{item.get('firm_key', '')}|{item.get('year', '')}" for item in members)
+            )
+        identity = "|".join(
+            (
+                str(first.get("firm_key", "") or ""),
+                str(first.get("legal_name_previous", "") or ""),
+                str(first.get("legal_name_new", "") or ""),
+                link_basis,
+            )
+        )
+        verified = all(official(item) for item in members) and bool(bases or announcement_ids)
+        event_groups.append((identity, members, "VERIFIED" if verified else "UNRESOLVED"))
+
+    events: list[dict[str, object]] = []
+    row_mapping: dict[str, str] = {}
+    for identity, members, identity_status in sorted(event_groups, key=lambda item: item[0]):
+        dates = sorted(
+            {
+                str(item.get("change_effective_date", ""))
+                for item in members
+                if str(item.get("date_precision", "")).lower() == "exact_date"
+                and str(item.get("change_effective_date", ""))
+            }
+        )
+        conflict = len(dates) > 1
+        precision = (
+            "exact_date"
+            if len(dates) == 1
+            else str(members[0].get("date_precision", "unknown") or "unknown")
+        )
+        effective_date = dates[0] if len(dates) == 1 else ""
+        event_id = "EVT-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
+        rows_text = ";".join(
+            sorted({f"{item.get('firm_key', '')}|{item.get('year', '')}" for item in members})
+        )
+        for item in members:
+            row_mapping[f"{item.get('firm_key', '')}|{item.get('year', '')}"] = event_id
+        events.append(
+            {
+                "event_id": event_id,
+                "firm_key": str(members[0].get("firm_key", "") or ""),
+                "previous_legal_name": str(members[0].get("legal_name_previous", "") or ""),
+                "new_legal_name": str(members[0].get("legal_name_new", "") or ""),
+                "effective_date": effective_date,
+                "date_precision": precision,
+                "evidence_tier": "|".join(
+                    sorted(
+                        {
+                            str(item.get("change_evidence_tier", "") or "")
+                            for item in members
+                            if str(item.get("change_evidence_tier", "") or "")
+                        }
+                    )
+                ),
+                "evidence_source": "|".join(
+                    sorted(
+                        {
+                            str(item.get("change_evidence_source", "") or "")
+                            for item in members
+                            if str(item.get("change_evidence_source", "") or "")
+                        }
+                    )
+                ),
+                "evidence_url": "|".join(
+                    sorted(
+                        {
+                            str(item.get("change_evidence_url", "") or "")
+                            for item in members
+                            if str(item.get("change_evidence_url", "") or "")
+                        }
+                    )
+                ),
+                "announcement_id": "|".join(
+                    sorted(
+                        {
+                            str(item.get("change_announcement_id", "") or "")
+                            for item in members
+                            if str(item.get("change_announcement_id", "") or "")
+                        }
+                    )
+                ),
+                "event_verification_status": (
+                    "UNRESOLVED_CONFLICT" if conflict else identity_status
+                ),
+                "manual_review_status": "PENDING",
+                "source_firm_year_rows": rows_text,
+                "event_notes": "identity_basis=" + link_basis,
+            }
+        )
+    return events, row_mapping
 
 
 def select_legal_name_pilot(
@@ -510,16 +737,34 @@ def select_legal_name_pilot(
     rows["pilot_stratum"] = ""
 
     strata = (
-        ("SSE_current", rows.exchange.eq("SSE") & rows.delisting_date.isna()
-         & rows.market_listing_date.lt("2020-01-01"), 15),
-        ("SZSE_current", rows.exchange.eq("SZSE") & rows.delisting_date.isna()
-         & rows.market_listing_date.lt("2020-01-01"), 15),
+        (
+            "SSE_current",
+            rows.exchange.eq("SSE")
+            & rows.delisting_date.isna()
+            & rows.market_listing_date.lt("2020-01-01"),
+            15,
+        ),
+        (
+            "SZSE_current",
+            rows.exchange.eq("SZSE")
+            & rows.delisting_date.isna()
+            & rows.market_listing_date.lt("2020-01-01"),
+            15,
+        ),
         ("SSE_delisted", rows.exchange.eq("SSE") & rows.delisting_date.notna(), 10),
         ("SZSE_delisted", rows.exchange.eq("SZSE") & rows.delisting_date.notna(), 10),
-        ("recent_IPO", rows.exchange.isin(["SSE", "SZSE"])
-         & rows.market_listing_date.ge("2020-01-01"), 20),
-        ("long_listed", rows.exchange.isin(["SSE", "SZSE"])
-         & rows.market_listing_date.lt("2000-01-01") & rows.delisting_date.isna(), 10),
+        (
+            "recent_IPO",
+            rows.exchange.isin(["SSE", "SZSE"]) & rows.market_listing_date.ge("2020-01-01"),
+            20,
+        ),
+        (
+            "long_listed",
+            rows.exchange.isin(["SSE", "SZSE"])
+            & rows.market_listing_date.lt("2000-01-01")
+            & rows.delisting_date.isna(),
+            10,
+        ),
     )
     chosen: dict[str, str] = {}
     for key in sorted(required):
@@ -537,7 +782,7 @@ def select_legal_name_pilot(
         candidates["_rank"] = candidates.firm_key.map(
             lambda key: hashlib.sha256(f"{seed}|{key}".encode("utf-8")).hexdigest()
         )
-        for key in candidates.sort_values("_rank").firm_key.head(minimum_firms-len(chosen)):
+        for key in candidates.sort_values("_rank").firm_key.head(minimum_firms - len(chosen)):
             chosen[str(key)] = "deterministic_fill"
     sample = rows.loc[rows.firm_key.isin(chosen)].copy()
     sample["pilot_stratum"] = sample.firm_key.map(chosen)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from scripts.run_cninfo_legal_name_recovery_20260927 import (
+    _build_pilot_change_candidate_rows,
+    _build_v2_strict_pilot_summary,
     _coverage_status,
     _frame_fingerprint,
     _load_status_cache,
@@ -8,15 +10,208 @@ from scripts.run_cninfo_legal_name_recovery_20260927 import (
     _process_one,
     _resolve_cross_year_name_changes,
     _strict_pilot_authorized,
+    _strict_pilot_authorized_v2,
 )
 from src.cnipa_annual_report_names import (
+    build_canonical_change_event_roster,
     extract_annual_report_legal_name_evidence,
     extract_company_name_change_announcement,
+    is_change_related_candidate,
     select_legal_name_pilot,
     validate_firm_year_status_set,
     validate_pdf_payload,
 )
 from src.historical_province_sources import CNINFOAnnualReportClient
+
+
+def _event_row(**overrides):
+    row = {
+        "firm_key": "SSE:600001:2000-01-01",
+        "year": 2024,
+        "company_name_change_flag": "YES",
+        "legal_name_previous": "甲股份有限公司",
+        "legal_name_new": "乙股份有限公司",
+        "change_effective_date": "2024-06-10",
+        "date_precision": "exact_date",
+        "change_evidence_tier": "H2",
+        "change_evidence_url": "https://notice.test/one.pdf",
+        "change_announcement_id": "notice-1",
+        "evidence_status": "CONFIRMED_NAME_CHANGE",
+        "failure_reason": "",
+        "change_case_reviewed": "",
+        "evidence_context": "公司名称由甲股份有限公司变更为乙股份有限公司",
+        "legal_name_at_year_end": "乙股份有限公司",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_change_candidate_includes_independent_qualifying_signals():
+    assert is_change_related_candidate(_event_row())
+    assert is_change_related_candidate(_event_row(company_name_change_flag="NO"))
+    assert is_change_related_candidate(
+        _event_row(
+            company_name_change_flag="NO",
+            legal_name_previous="",
+            legal_name_new="",
+            change_evidence_tier="H2",
+        )
+    )
+    assert not is_change_related_candidate(
+        _event_row(
+            company_name_change_flag="NO",
+            legal_name_previous="",
+            legal_name_new="",
+            change_evidence_tier="",
+            change_evidence_url="",
+            evidence_context="",
+        )
+    )
+    assert is_change_related_candidate(
+        _event_row(
+            company_name_change_flag="NO",
+            legal_name_previous="",
+            legal_name_new="",
+            change_evidence_tier="",
+            change_evidence_url="",
+            change_case_reviewed="YES",
+        )
+    )
+    assert is_change_related_candidate(
+        _event_row(
+            company_name_change_flag="NO",
+            legal_name_previous="",
+            legal_name_new="",
+            change_evidence_tier="",
+            change_evidence_url="",
+            evidence_context="",
+            evidence_status="TEMPORAL_UNRESOLVED",
+            failure_reason="名称时间无法确定",
+        )
+    )
+    assert is_change_related_candidate(
+        _event_row(
+            company_name_change_flag="NO",
+            legal_name_previous="",
+            legal_name_new="",
+            change_evidence_tier="",
+            change_evidence_url="",
+            evidence_context="",
+        ),
+        adjacent_year_name_change=True,
+    )
+    assert is_change_related_candidate(
+        _event_row(
+            company_name_change_flag="NO",
+            legal_name_previous="",
+            legal_name_new="",
+            change_evidence_tier="",
+            change_evidence_url="",
+            evidence_context="公司名称由甲股份有限公司变更为乙股份有限公司",
+        )
+    )
+
+
+def test_one_change_event_can_map_to_multiple_firm_year_rows():
+    first = _event_row(year=2023)
+    second = _event_row(year=2024, change_announcement_id="notice-1")
+
+    events, row_mapping = build_canonical_change_event_roster([first, second])
+
+    assert len(events) == 1
+    assert (
+        events[0]["source_firm_year_rows"]
+        == "SSE:600001:2000-01-01|2023;SSE:600001:2000-01-01|2024"
+    )
+    assert row_mapping["SSE:600001:2000-01-01|2023"] == events[0]["event_id"]
+    assert row_mapping["SSE:600001:2000-01-01|2024"] == events[0]["event_id"]
+
+
+def test_same_name_pair_with_distinct_exact_dates_remains_two_events():
+    first = _event_row(change_effective_date="2023-06-10", year=2023)
+    second = _event_row(
+        change_effective_date="2024-06-10", year=2024, change_announcement_id="notice-2"
+    )
+
+    events, _ = build_canonical_change_event_roster([first, second])
+
+    assert len(events) == 2
+    assert len({event["event_id"] for event in events}) == 2
+
+
+def test_announcement_id_is_preferred_for_event_identity():
+    first = _event_row(change_effective_date="2024-06-10")
+    second = _event_row(year=2025, change_effective_date="2024-06-11")
+
+    events, mapping = build_canonical_change_event_roster([first, second])
+
+    assert len(events) == 1
+    assert mapping["SSE:600001:2000-01-01|2024"] == mapping["SSE:600001:2000-01-01|2025"]
+
+
+def test_exact_date_and_issuer_pair_can_confirm_same_event_across_notices():
+    first = _event_row(change_announcement_id="notice-a")
+    second = _event_row(year=2025, change_announcement_id="notice-b")
+
+    events, _ = build_canonical_change_event_roster([first, second])
+
+    assert len(events) == 1
+    assert events[0]["date_precision"] == "exact_date"
+
+
+def test_year_precision_events_deduplicate_only_with_same_official_notice():
+    first = _event_row(
+        change_effective_date="", date_precision="year", change_announcement_id="notice-year"
+    )
+    second = _event_row(
+        year=2025,
+        change_effective_date="",
+        date_precision="year",
+        change_announcement_id="notice-year",
+    )
+    unsupported = _event_row(
+        year=2026,
+        change_effective_date="",
+        date_precision="year",
+        change_announcement_id="",
+        change_evidence_url="",
+    )
+
+    events, mapping = build_canonical_change_event_roster([first, second, unsupported])
+
+    assert len(events) == 2
+    assert mapping["SSE:600001:2000-01-01|2024"] == mapping["SSE:600001:2000-01-01|2025"]
+    assert next(event for event in events if event["event_verification_status"] == "UNRESOLVED")
+
+
+def test_unresolved_same_name_candidates_are_not_silently_merged():
+    first = _event_row(
+        change_effective_date="",
+        date_precision="unknown",
+        change_announcement_id="",
+        change_evidence_url="",
+    )
+    second = _event_row(
+        year=2025,
+        change_effective_date="",
+        date_precision="unknown",
+        change_announcement_id="",
+        change_evidence_url="",
+    )
+
+    events, mapping = build_canonical_change_event_roster([first, second])
+
+    assert len(events) == 2
+    assert mapping["SSE:600001:2000-01-01|2024"] != mapping["SSE:600001:2000-01-01|2025"]
+    assert {event["event_verification_status"] for event in events} == {"UNRESOLVED"}
+
+
+def test_duplicate_candidate_firm_year_keys_are_rejected():
+    import pytest
+
+    row = _event_row()
+    with pytest.raises(ValueError, match="DUPLICATE_CHANGE_CANDIDATE_ROW_KEY"):
+        build_canonical_change_event_roster([row, dict(row)])
 
 
 def _strict_summary_fixture(sample, targets, audit, roster):
@@ -55,15 +250,25 @@ def test_strict_pilot_summary_must_match_fingerprints_and_reviews():
         [{"firm_key": row.firm_key, "year": 2024} for row in sample.itertuples()]
     )
     audit = pd.DataFrame([{"source_url": "https://example.test/report.pdf"}])
-    roster = pd.DataFrame([{
-        "case_id": "case-1", "firm_key": sample.firm_key.iloc[0], "year": 2024,
-        "review_status": "PASS", "manual_change_flag": "YES",
-        "manual_previous_name": "甲股份有限公司", "manual_new_name": "乙股份有限公司",
-        "review_evidence_url": "https://example.test/notice.pdf",
-    }])
+    roster = pd.DataFrame(
+        [
+            {
+                "case_id": "case-1",
+                "firm_key": sample.firm_key.iloc[0],
+                "year": 2024,
+                "review_status": "PASS",
+                "manual_change_flag": "YES",
+                "parser_change_flag": "YES",
+                "parser_legal_name_at_year_end": "乙股份有限公司",
+                "manual_previous_name": "甲股份有限公司",
+                "manual_new_name": "乙股份有限公司",
+                "review_evidence_url": "https://example.test/notice.pdf",
+            }
+        ]
+    )
     summary = _strict_summary_fixture(sample, targets, audit, roster)
 
-    assert _strict_pilot_authorized(summary, sample, targets, audit, roster)
+    assert not _strict_pilot_authorized(summary, sample, targets, audit, roster)
     assert not _strict_pilot_authorized(
         summary, sample.assign(firm_key="SZSE:000001:2000-01-01"), targets, audit, roster
     )
@@ -95,17 +300,26 @@ def test_rerun_preserves_manual_fields_only_when_source_identity_matches():
     import pandas as pd
 
     evidence = {
-        "firm_key": "SSE:600001:2000-01-01", "year": 2024,
+        "firm_key": "SSE:600001:2000-01-01",
+        "year": 2024,
         "legal_name_current_in_report": "甲股份有限公司",
         "legal_name_at_year_end": "甲股份有限公司",
-        "company_name_change_flag": "NO", "legal_name_previous": "",
-        "legal_name_new": "", "change_effective_date": "",
-        "change_evidence_url": "", "change_pdf_sha256": "",
+        "company_name_change_flag": "NO",
+        "legal_name_previous": "",
+        "legal_name_new": "",
+        "change_effective_date": "",
+        "change_evidence_url": "",
+        "change_pdf_sha256": "",
     }
-    prior = pd.DataFrame([{
-        **evidence, "human_audit_status": "PASS",
-        "audited_legal_name": "甲股份有限公司",
-    }])
+    prior = pd.DataFrame(
+        [
+            {
+                **evidence,
+                "human_audit_status": "PASS",
+                "audited_legal_name": "甲股份有限公司",
+            }
+        ]
+    )
 
     same = _preserve_manual_audit(pd.DataFrame([evidence]), prior)
     changed = _preserve_manual_audit(
@@ -121,9 +335,7 @@ def test_name_parser_has_no_pilot_issuer_specific_code_branches():
     from pathlib import Path
 
     parser = Path("src/cnipa_annual_report_names.py").read_text(encoding="utf-8")
-    runner = Path(
-        "scripts/run_cninfo_legal_name_recovery_20260927.py"
-    ).read_text(encoding="utf-8")
+    runner = Path("scripts/run_cninfo_legal_name_recovery_20260927.py").read_text(encoding="utf-8")
 
     for stock_code in ("300237", "600936", "603003", "603196"):
         assert stock_code not in parser
@@ -141,17 +353,27 @@ def test_finalize_pilot_does_not_promote_unreconciled_legacy_summary(tmp_path, m
     sample = pd.DataFrame([{"firm_key": "SSE:600001:2000-01-01"}])
     targets = pd.DataFrame([{"firm_key": "SSE:600001:2000-01-01", "year": 2024}])
     status = targets.assign(status="COMPLETE_NO_CHANGE")
-    audit = pd.DataFrame([{
-        "firm_key": "SSE:600001:2000-01-01", "year": 2024,
-        "legal_name_current_in_report": "甲股份有限公司",
-        "legal_name_at_year_end": "甲股份有限公司",
-        "company_name_change_flag": "NO", "legal_name_previous": "",
-        "legal_name_new": "", "human_audit_status": "PASS",
-        "audited_legal_name": "甲股份有限公司",
-        "abbreviation_false_positive": "0", "change_case_reviewed": "",
-        "audited_change_flag": "", "audited_previous_legal_name": "",
-        "audited_new_legal_name": "", "source_url": "https://example.test/report.pdf",
-    }])
+    audit = pd.DataFrame(
+        [
+            {
+                "firm_key": "SSE:600001:2000-01-01",
+                "year": 2024,
+                "legal_name_current_in_report": "甲股份有限公司",
+                "legal_name_at_year_end": "甲股份有限公司",
+                "company_name_change_flag": "NO",
+                "legal_name_previous": "",
+                "legal_name_new": "",
+                "human_audit_status": "PASS",
+                "audited_legal_name": "甲股份有限公司",
+                "abbreviation_false_positive": "0",
+                "change_case_reviewed": "",
+                "audited_change_flag": "",
+                "audited_previous_legal_name": "",
+                "audited_new_legal_name": "",
+                "source_url": "https://example.test/report.pdf",
+            }
+        ]
+    )
     sample.to_csv(tmp_path / "pilot_sample.csv", index=False)
     targets.to_csv(tmp_path / "pilot_firm_year_targets.csv", index=False)
     status.to_csv(tmp_path / "pilot_status.csv", index=False)
@@ -181,12 +403,14 @@ def test_full_run_fallback_accepts_cninfo_list_annual_reports_source_url():
             )
 
     report_index = {
-        "000096": [{
-            "report_year": 2022,
-            "title": "深圳市广聚能源股份有限公司2022年年度报告全文",
-            "source_url": report_url,
-            "announcement_id": "1216438315",
-        }]
+        "000096": [
+            {
+                "report_year": 2022,
+                "title": "深圳市广聚能源股份有限公司2022年年度报告全文",
+                "source_url": report_url,
+                "announcement_id": "1216438315",
+            }
+        ]
     }
 
     result = _process_one(
@@ -336,12 +560,12 @@ def test_extracts_wrapped_old_new_names_and_event_date_from_name_change_section(
     result = extract_annual_report_legal_name_evidence(
         text, expected_year=2022, source_report_title="云南旅游2022年年度报告全文"
     )
-    assert result["company_name_change_flag"] == "UNKNOWN"
+    assert result["company_name_change_flag"] == "NO"
     assert result["legal_name_previous"] == "昆明世博园股份有限公司"
     assert result["legal_name_new"] == "云南旅游股份有限公司"
     assert result["change_effective_date"] == "2010-09-16"
     assert result["date_precision"] == "exact_date"
-    assert result["evidence_status"] == "CONFIRMED_YEAR_END_NAME_ONLY"
+    assert result["evidence_status"] == "CONFIRMED_NO_CHANGE"
 
 
 def test_does_not_treat_subsidiary_old_name_labels_as_issuer_name_history():
@@ -442,12 +666,8 @@ def test_resume_reuses_completed_and_pending_records_without_retrieval(tmp_path)
         "evidence_status": "TEMPORAL_UNRESOLVED",
     }
     assert _coverage_status(uncertain_completed) == "TEMPORAL_UNRESOLVED"
-    assert _coverage_status({"status": "COMPLETE_NAME_CHANGE"}) == (
-        "CONFIRMED_NAME_CHANGE"
-    )
-    assert _coverage_status({"status": "PENDING"}) == (
-        "CONFIRMED_YEAR_END_NAME_ONLY"
-    )
+    assert _coverage_status({"status": "COMPLETE_NAME_CHANGE"}) == ("CONFIRMED_NAME_CHANGE")
+    assert _coverage_status({"status": "PENDING"}) == ("CONFIRMED_YEAR_END_NAME_ONLY")
     assert _coverage_status({**pending, "evidence_status": "TEMPORAL_UNRESOLVED"}) == (
         "TEMPORAL_UNRESOLVED"
     )
@@ -480,20 +700,28 @@ def test_pilot_sample_is_deterministic_unique_and_stratified():
         for index in range(40):
             listing = "1995-01-01" if index < 20 else f"202{index % 5}-01-01"
             delisted = "2024-01-01" if 20 <= index < 30 else None
-            rows.append({
-                "firm_key": f"{exchange}:{index:06d}:{listing}",
-                "exchange": exchange,
-                "market_listing_date": listing,
-                "delisting_date": delisted,
-            })
+            rows.append(
+                {
+                    "firm_key": f"{exchange}:{index:06d}:{listing}",
+                    "exchange": exchange,
+                    "market_listing_date": listing,
+                    "delisting_date": delisted,
+                }
+            )
     firms = pd.DataFrame(rows)
     first = select_legal_name_pilot(firms, seed="20260927")
     second = select_legal_name_pilot(firms, seed="20260927")
     assert first.firm_key.tolist() == second.firm_key.tolist()
     assert first.firm_key.is_unique
     assert len(first) >= 80
-    assert {"SSE_current", "SZSE_current", "SSE_delisted", "SZSE_delisted",
-            "recent_IPO", "long_listed"}.issubset(set(first.pilot_stratum))
+    assert {
+        "SSE_current",
+        "SZSE_current",
+        "SSE_delisted",
+        "SZSE_delisted",
+        "recent_IPO",
+        "long_listed",
+    }.issubset(set(first.pilot_stratum))
 
 
 def test_pdf_download_returns_digest_metadata_but_not_payload(monkeypatch, tmp_path):
@@ -516,9 +744,7 @@ def test_pdf_download_returns_digest_metadata_but_not_payload(monkeypatch, tmp_p
         "run",
         lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=b"report text " * 30),
     )
-    client = CNINFOAnnualReportClient(
-        tmp_path, session=StubSession(), sleep=lambda _: None
-    )
+    client = CNINFOAnnualReportClient(tmp_path, session=StubSession(), sleep=lambda _: None)
     text, metadata = client.extract_pdf_text_with_metadata("https://example.invalid/a.pdf")
     assert text.startswith("report text")
     assert metadata["pdf_sha256"] == hashlib.sha256(payload).hexdigest()
@@ -571,6 +797,219 @@ def test_post_year_end_name_change_does_not_rewrite_fiscal_year_name():
     assert evidence["legal_name_current_in_report"] == "上海璞源化学材料集团股份有限公司"
     assert evidence["legal_name_at_year_end"] == "日播时尚集团股份有限公司"
     assert evidence["change_effective_date"] == "2026-03-10"
+
+
+def test_historical_exact_name_change_is_no_for_later_report_year():
+    report = (
+        "2020年年度报告\n"
+        "公司的中文名称 云南旅游股份有限公司\n"
+        "公司名称于2010年9月16日由昆明世博园股份有限公司变更为云南旅游股份有限公司。\n"
+    )
+    evidence = extract_annual_report_legal_name_evidence(
+        report, expected_year=2020, source_report_title="2020年年度报告"
+    )
+    assert evidence["company_name_change_flag"] == "NO"
+    assert evidence["legal_name_at_year_end"] == "云南旅游股份有限公司"
+    assert evidence["evidence_status"] == "CONFIRMED_NO_CHANGE"
+
+
+def test_candidate_builder_includes_union_of_change_signals_and_adjacent_names():
+    import pandas as pd
+
+    audit = pd.DataFrame(
+        [
+            _event_row(
+                firm_key="SSE:600001:2000-01-01",
+                year=2023,
+                company_name_change_flag="NO",
+                legal_name_previous="",
+                legal_name_new="",
+                evidence_context="",
+                change_case_reviewed="",
+            ),
+            _event_row(firm_key="SSE:600001:2000-01-01", year=2024),
+            _event_row(
+                firm_key="SSE:600002:2000-01-01",
+                year=2024,
+                company_name_change_flag="NO",
+                legal_name_previous="",
+                legal_name_new="",
+                evidence_context="",
+                change_case_reviewed="",
+                change_evidence_url="",
+                change_announcement_id="",
+                change_evidence_tier="",
+            ),
+        ]
+    )
+    audit.loc[0, "legal_name_at_year_end"] = "甲股份有限公司"
+    audit.loc[1, "legal_name_at_year_end"] = "乙股份有限公司"
+    audit.loc[2, "legal_name_at_year_end"] = "丙股份有限公司"
+    statuses = pd.DataFrame(
+        [
+            {
+                "firm_key": row.firm_key,
+                "year": row.year,
+                "source_url": f"https://reports.test/{row.firm_key}/{row.year}.pdf",
+            }
+            for row in audit.itertuples()
+        ]
+    )
+    candidates = _build_pilot_change_candidate_rows(audit, statuses)
+    assert list(zip(candidates.firm_key, candidates.year.astype(int))) == [
+        ("SSE:600001:2000-01-01", 2023),
+        ("SSE:600001:2000-01-01", 2024),
+    ]
+    assert candidates.source_report_url.str.startswith("https://").all()
+
+
+def test_v2_gate_requires_complete_independent_event_and_row_reviews():
+    import pandas as pd
+
+    sample = pd.DataFrame({"firm_key": [f"F{i}" for i in range(92)]})
+    target_rows = [{"firm_key": f"F{i}", "year": 2020 + j} for i in range(92) for j in range(5)]
+    target_rows.append({"firm_key": "F0", "year": 2025})
+    targets = pd.DataFrame(target_rows)
+    audit = pd.DataFrame(
+        {
+            "firm_key": targets.firm_key,
+            "year": targets.year,
+            "legal_name_current_in_report": "甲股份有限公司",
+            "legal_name_at_year_end": "甲股份有限公司",
+            "audited_legal_name": "甲股份有限公司",
+            "human_audit_status": "PASS",
+            "abbreviation_false_positive": "0",
+        }
+    )
+    candidates = pd.DataFrame([_event_row()])
+    events = pd.DataFrame(
+        [
+            {
+                "event_id": "EVT-1",
+                "firm_key": "SSE:600001:2000-01-01",
+                "previous_legal_name": "甲股份有限公司",
+                "new_legal_name": "乙股份有限公司",
+                "effective_date": "2024-06-10",
+                "date_precision": "exact_date",
+                "manual_review_status": "PASS",
+                "event_verification_status": "VERIFIED",
+                "evidence_url": "https://notice.test/one.pdf",
+                "manual_previous_legal_name": "甲股份有限公司",
+                "manual_new_legal_name": "乙股份有限公司",
+                "manual_effective_date": "2024-06-10",
+            }
+        ]
+    )
+    rows = pd.DataFrame(
+        [
+            {
+                "firm_key": "SSE:600001:2000-01-01",
+                "year": 2024,
+                "event_id": "EVT-1",
+                "review_status": "PASS",
+                "manual_change_flag": "YES",
+                "review_result": "CHANGE_EVENT_ROW",
+                "parser_change_flag": "YES",
+                "parser_legal_name_at_year_end": "乙股份有限公司",
+                "manual_previous_name": "甲股份有限公司",
+                "manual_new_name": "乙股份有限公司",
+                "manual_effective_date": "2024-06-10",
+                "manual_legal_name_at_year_end": "乙股份有限公司",
+                "review_evidence_url": "https://notice.test/one.pdf",
+                "exclusion_reason": "",
+            }
+        ]
+    )
+    summary = _build_v2_strict_pilot_summary(sample, targets, audit, candidates, events, rows)
+    assert summary["schema"] == "cnipa_strict_pilot_gate_v2"
+    assert summary["pilot_gate_pass"] is True
+    assert _strict_pilot_authorized_v2(summary, sample, targets, audit, candidates, events, rows)
+    assert not _strict_pilot_authorized_v2(
+        {**summary, "schema": "cnipa_strict_pilot_gate_v1"},
+        sample,
+        targets,
+        audit,
+        candidates,
+        events,
+        rows,
+    )
+    assert not _strict_pilot_authorized_v2(
+        summary, sample, targets, audit, candidates, events, rows.iloc[0:0]
+    )
+    for key in (
+        "sample_fingerprint",
+        "target_fingerprint",
+        "source_evidence_fingerprint",
+        "change_candidate_row_fingerprint",
+        "change_event_roster_fingerprint",
+        "change_row_review_fingerprint",
+    ):
+        assert not _strict_pilot_authorized_v2(
+            {**summary, key: "0" * 64}, sample, targets, audit, candidates, events, rows
+        )
+    for key in (
+        "legal_name_precision",
+        "event_old_name_accuracy",
+        "event_new_name_accuracy",
+        "event_effective_date_accuracy",
+        "firm_year_change_flag_accuracy",
+        "firm_year_year_end_name_accuracy",
+    ):
+        bad_metrics = {**summary["metrics"], key: 0.0}
+        assert not _strict_pilot_authorized_v2(
+            {**summary, "metrics": bad_metrics},
+            sample,
+            targets,
+            audit,
+            candidates,
+            events,
+            rows,
+        )
+    assert not _strict_pilot_authorized_v2(
+        {**summary, "human_audit_unreviewed": 1},
+        sample,
+        targets,
+        audit,
+        candidates,
+        events,
+        rows,
+    )
+    assert not _strict_pilot_authorized_v2(
+        {**summary, "security_abbreviation_false_positives": 1},
+        sample,
+        targets,
+        audit,
+        candidates,
+        events,
+        rows,
+    )
+    assert not _strict_pilot_authorized_v2(
+        summary,
+        sample,
+        targets,
+        audit,
+        candidates,
+        pd.concat([events, events], ignore_index=True),
+        rows,
+    )
+    assert not _strict_pilot_authorized_v2(
+        summary,
+        sample,
+        targets,
+        audit,
+        candidates,
+        events,
+        rows.assign(review_status="PENDING"),
+    )
+    assert not _strict_pilot_authorized_v2(
+        {"status": "COMPLETE", "pilot_gate_pass": True, "schema": "legacy"},
+        sample,
+        targets,
+        audit,
+        candidates,
+        events,
+        rows,
+    )
 
 
 def test_h2_announcement_confirms_change_pair_and_exact_registration_date():
@@ -652,9 +1091,7 @@ def test_h2_short_text_pdf_is_audited_and_next_notice_is_checked(tmp_path, monke
 
     class Client:
         def list_company_name_change_announcements(self, stock_code, start, end):
-            assert (stock_code, start, end) == (
-                "300237", "2022-01-01", "2023-03-31"
-            )
+            assert (stock_code, start, end) == ("300237", "2022-01-01", "2023-03-31")
             return [
                 {"title": "第一份公告", "source_url": "https://example.invalid/short.pdf"},
                 {"title": "名称变更公告", "source_url": "https://example.invalid/good.pdf"},

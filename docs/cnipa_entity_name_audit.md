@@ -12,7 +12,7 @@
 
 当前法人名称来自 EastMoney F10 `ORG_NAME`，并经过 Profile、来源字段和组织代码一致性核验。EastMoney `FORMERNAME` 已冻结为 `FORMER_SECURITY_NAME_ONLY`，不得作为历史法人名称来源。现有 2,306 家企业对应 6,417 条 `FORMERNAME` 候选全部标记为 `rejected_stock_abbreviation / REJECTED`，`query_eligible=0`。
 
-年报抽取器使用 CNINFO 正式年度报告正文，并区分法人全称与证券简称。固定 seed 的既有 Pilot 为 92 家、461 个 firm-year；425 份报告成功取得，423 个名称完成上下文人工复核，名称精确率 100%，证券简称误判 0%，缺失率 8.24%。5 个名称变更相关 Pilot 案例中，变更标记及旧/新名称解析各有 3/5 完全匹配（60%）；Pilot 结果不被当作 Full 的质量通过证明。
+年报抽取器使用 CNINFO 正式年度报告正文，并区分法人全称与证券简称。固定 seed 的既有 Pilot 为 92 家、461 个 firm-year；425 份报告成功取得，423 个名称完成上下文人工复核，名称精确率 100%，证券简称误判 0%，缺失率 8.24%。 tracked 历史 audit 曾记录 5 个名称变更相关 cases、变更标记及旧/新名称解析各 3/5；这是历史结果，不是 R3E 当前 canonical 分母。Pilot 结果不被当作 Full 的全范围质量通过证明。
 
 ## 2020—2024 年报证据恢复
 
@@ -60,8 +60,20 @@ CNINFO 身份键更正后，现有名称与 year coverage 文件仅按新 firm-y
 
 ## 4.4A-R3 严格 Pilot Gate 收口
 
-R3 对同一 seed、92 家和 461 个 firm-year 的既有 Pilot 做了本地只读取证，没有重新抽样或请求 H2。现存 `pilot_context_audit.csv` 有 6 行被标记为当前已审核的更名相关 firm-year；旧 `_finalize_pilot_audit()` 将这些行数直接当作独立案例数，并用该文件自身的标注覆盖 legacy summary，因此 `6 / 1.0 / PASS` 不能证明冻结 Gate 通过。跟踪文档保留的冻结结论仍是 5 个案例、各项准确率 3/5。冻结版逐案 roster/版本没有留存，故无法证据化指出当前 6 行中的哪一行是冻结口径之外的第六项，也不能把行数推断成唯一事件数；canonical denominator 当前未能确定。
+R3 的判断属于当时状态：同一 seed、92 家和 461 个 firm-year 的既有 Pilot 中，legacy review CSV 有 6 行；旧冻结 roster 已遗失，故 R3 未尝试复原，也未将行数当作事件数。R3 当时 strict Gate 未通过。该阶段结论由后续 R3E 前瞻冻结的事件级 roster 与行级审核取代；历史 5 cases / 3-of-5 仅作为旧 tracked 结果保留。
 
-本地 ignored 输出新增 `pilot_gate_reconciliation.csv` 与 `pilot_strict_gate_summary.json`。严格摘要记录 92/461、样本/目标/来源证据 SHA-256 指纹、6 条 legacy review 行、未确定的案例分母和 `PILOT_GATE_NOT_PASSED`。它不改写原 `pilot_summary.json`，也不授权 Full。未来必须有独立冻结的 `pilot_gate_case_review.csv`，逐例提供人工结论及证据链接，并通过样本、目标和来源证据指纹校验后，才可判定 Gate。
+R3 的本地 v1 摘要不构成 R3E 的 Gate 输入，也不授权 Full。
 
-Runner 已阻断旧 summary 与 `--pilot-pass` 单独授权 Full；H2 公告现须明确形成所审核的旧名→新名关系，不能仅凭公告中分别出现两个名称和通用“完成变更”语句通过。增加 H1/H2 时间解析和严格 Gate 回归测试。现有缓存证据记载 `300237` 2024 年更名于目标年内完成，`600936` 2025 年更名于 2025-12-31 完成；本轮没有新的 H2 网络请求，也未重下年报。Full cache 保持 `FULL_EVIDENCE_CACHE_PRE_GATE`，没有 targeted refresh。总状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；353 个时间关系未决、695 行缺少名称，`zero_semantics` / `missing_semantics` 保持 pending；未访问 CNIPA 专利系统。
+## 4.4A-R3E 规范化更名事件 Pilot Gate
+
+固定样本未变：seed `20260927`、92 家、461 个 firm-year。新的确定性候选集包含 14 个 change-related candidate firm-year rows；其中 12 行映射到 6 个有来源支持的独立法人名称变更事件，另 2 行经行级审核判为非更名事件并记录排除理由和官方年报来源。事件数与行数分别计量。
+
+六个事件为：600936 的 2025 年变更、300237 的 2024 与 2025 两次变更、603003 的 2023 年变更、002059 的 2010 年历史变更、603196 的 2026 年变更（该事件仅用于解释 2025 年报的后续名称，不将 2025 年 firm-year 标为发生变更）。300237/2025 的公告未载明具体工商登记日，按 year precision 保存，不推定日级日期。
+
+300237/2024 的官方公告确认“山东美晨生态环境股份有限公司→山东美晨科技股份有限公司”，工商登记日为 2024-08-13；600936/2025 的官方公告确认“广西广播电视信息网络股份有限公司→广西北投科技股份有限公司”，登记日为 2025-12-31。300237 两份公告及 600936 公告共进行 3 次定点 H2 官方来源复核。历史 5 cases / 3-of-5、legacy CSV 的 6 条 review rows、新 canonical 6 distinct events / 12 event-linked rows / 14 candidate rows 分属不同口径，不能互作同一分母。
+
+新 ignored 文件为 `pilot_change_candidate_rows.csv`、`pilot_change_event_roster.csv`、`pilot_change_row_review.csv`；v2 摘要 schema 为 `cnipa_strict_pilot_gate_v2`。事件旧名、新名、可核实精确日期准确率均为 1.0；事件相关 firm-year change flag 与 year-end legal name 准确率均为 1.0；legal-name precision 为 1.0，证券简称误判 0，人工未审 0，未决候选/事件均为 0。v1、legacy summary 和 `--pilot-pass` 单独均不能授权 Full；Full 仍需 v2 与三份指纹匹配审核文件。本轮没有启动 Full 或 targeted refresh，Full evidence cache 保持不变。
+
+CNIPA 全范围状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`：主窗口的 353 个时间关系未决和 695 行缺少年报法人名称尚待后续处理；`zero_semantics` / `missing_semantics` 仍为 pending。verified historical names 仍为 3，unique query names 仍为 5,269。未访问 CNIPA 专利系统，未检索或下载专利。
+
+R3E 全库 pytest：311 passed；Ruff：`All checks passed!`；uv 依赖检查：116 packages compatible；push hygiene：PASS。
