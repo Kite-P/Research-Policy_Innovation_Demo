@@ -54,6 +54,111 @@ def _atomic_json(path: Path, payload: dict[str, object]) -> None:
     temporary.replace(path)
 
 
+def _frame_fingerprint(frame: pd.DataFrame) -> str:
+    records = frame.fillna("").astype(str).sort_values(
+        list(frame.columns), kind="stable"
+    ).to_dict("records") if len(frame) else []
+    payload = json.dumps(
+        {"columns": list(frame.columns), "records": records},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _strict_pilot_authorized(
+    summary: dict[str, object], sample: pd.DataFrame, targets: pd.DataFrame,
+    audit: pd.DataFrame, roster: pd.DataFrame,
+) -> bool:
+    """Only a fingerprint-bound, fully reviewed canonical summary opens Full."""
+    reviewed_ids = summary.get("reviewed_case_ids")
+    metrics = summary.get("metrics")
+    roster_columns = {
+        "case_id", "firm_key", "year", "review_status", "manual_change_flag",
+        "manual_previous_name", "manual_new_name", "review_evidence_url",
+    }
+    return bool(
+        summary.get("schema") == "cnipa_strict_pilot_gate_v1"
+        and summary.get("seed") == SEED
+        and summary.get("status") == "STRICT_PILOT_GATE_PASS"
+        and summary.get("pilot_gate_pass") is True
+        and summary.get("status_key_set_exact") is True
+        and int(summary.get("pilot_firms", 0)) == sample.firm_key.nunique()
+        and sample.firm_key.nunique() >= 80
+        and int(summary.get("target_firm_years", 0)) == len(targets)
+        and summary.get("case_roster_reconciled") is True
+        and summary.get("sample_fingerprint") == _frame_fingerprint(sample)
+        and summary.get("target_fingerprint") == _frame_fingerprint(targets)
+        and summary.get("source_evidence_fingerprint") == _frame_fingerprint(audit)
+        and summary.get("case_roster_fingerprint") == _frame_fingerprint(roster)
+        and roster_columns.issubset(roster.columns)
+        and roster.case_id.ne("").all()
+        and roster.case_id.is_unique
+        and roster.review_status.eq("PASS").all()
+        and roster.manual_change_flag.ne("").all()
+        and roster.manual_previous_name.ne("").all()
+        and roster.manual_new_name.ne("").all()
+        and roster.review_evidence_url.str.startswith("https://").all()
+        and summary.get("review_complete") is True
+        and isinstance(reviewed_ids, list)
+        and sorted(reviewed_ids) == sorted(roster.case_id.tolist())
+        and summary.get("change_case_denominator") == len(reviewed_ids)
+        and isinstance(metrics, dict)
+        and metrics.get("legal_name_precision", 0) >= 0.99
+        and metrics.get("security_abbreviation_false_positives", 1) == 0
+        and metrics.get("human_audit_unreviewed", 1) == 0
+        and metrics.get("company_name_change_flag_accuracy", 0) == 1.0
+        and metrics.get("previous_name_accuracy", 0) == 1.0
+        and metrics.get("new_name_accuracy", 0) == 1.0
+    )
+
+
+def _preserve_manual_audit(review: pd.DataFrame, prior: pd.DataFrame) -> pd.DataFrame:
+    manual_columns = [
+        "human_audit_status", "audited_legal_name",
+        "abbreviation_false_positive", "change_case_reviewed",
+        "audited_change_flag", "audited_previous_legal_name",
+        "audited_new_legal_name", "audited_effective_date",
+        "wrong_year", "wrong_document",
+    ]
+    identity_columns = [
+        "firm_key", "year", "legal_name_current_in_report",
+        "legal_name_at_year_end", "company_name_change_flag",
+        "legal_name_previous", "legal_name_new", "change_effective_date",
+        "change_evidence_url", "change_pdf_sha256",
+    ]
+    review = review.fillna("").copy()
+    prior = prior.fillna("").copy()
+    for column in manual_columns:
+        if column not in review:
+            review[column] = ""
+    if not {"firm_key", "year"}.issubset(prior.columns):
+        return review
+    review["firm_key"] = review.firm_key.astype(str)
+    review["year"] = review.year.astype(str)
+    prior["firm_key"] = prior.firm_key.astype(str)
+    prior["year"] = prior.year.astype(str)
+    shared_identity = [
+        column for column in identity_columns
+        if column in prior.columns and column in review.columns
+    ]
+    prior_by_key = prior.set_index(["firm_key", "year"], drop=False)
+    if prior_by_key.index.has_duplicates:
+        return review
+    for column in manual_columns:
+        if column not in prior.columns:
+            continue
+        for index, row in review.iterrows():
+            key = (row["firm_key"], row["year"])
+            if key not in prior_by_key.index:
+                continue
+            previous = prior_by_key.loc[key]
+            if all(str(row[c]) == str(previous[c]) for c in shared_identity):
+                review.at[index, column] = str(previous[column])
+    return review
+
+
 def _source_records(cache_dir: Path = SOURCE_CACHE) -> dict[tuple[str, int], dict[str, object]]:
     sources: dict[tuple[str, int], dict[str, object]] = {}
     for path in sorted(cache_dir.glob("*.json")):
@@ -312,102 +417,179 @@ def _finalize_pilot_audit() -> dict[str, object]:
     audit = pd.read_csv(audit_path, dtype=str).fillna("")
     statuses = pd.read_csv(status_path, dtype=str).fillna("")
     sample = pd.read_csv(sample_path, dtype=str).fillna("")
+    pairs = set(zip(statuses.firm_key.astype(str), statuses.year.astype(int)))
+    targets = pd.read_csv(
+        OUTPUT / "pilot_firm_year_targets.csv", dtype={"firm_key": str}
+    ).fillna("")
     if "legal_name_at_year_end" in audit:
         expected_names = audit.legal_name_at_year_end.where(
             audit.legal_name_at_year_end.ne(""), audit.legal_name_current_in_report
         )
     else:
         expected_names = audit.legal_name_current_in_report
-    audit["_expected_legal_name"] = expected_names
-    candidate = audit._expected_legal_name.ne("")
-    reviewed = audit.loc[candidate]
-    unreviewed = int(
-        reviewed.human_audit_status.ne("PASS").sum()
-        + reviewed.audited_legal_name.ne(reviewed._expected_legal_name).sum()
-        + reviewed.abbreviation_false_positive.eq("").sum()
+    name_rows = audit.loc[expected_names.ne("")].copy()
+    name_rows["_expected_name"] = expected_names.loc[expected_names.ne("")]
+    name_review_unreviewed = int(
+        name_rows.human_audit_status.ne("PASS").sum()
+        + name_rows.audited_legal_name.ne(name_rows._expected_name).sum()
+        + name_rows.abbreviation_false_positive.eq("").sum()
     )
-    false_positives = int(reviewed.abbreviation_false_positive.eq("1").sum())
-    legal_precision = (
-        float(
-            (
-                reviewed.human_audit_status.eq("PASS")
-                & reviewed.audited_legal_name.eq(reviewed._expected_legal_name)
-                & reviewed.abbreviation_false_positive.eq("0")
-            ).mean()
+    false_positives = int(name_rows.abbreviation_false_positive.eq("1").sum())
+    precision = float(
+        name_rows.audited_legal_name.eq(name_rows._expected_name).mean()
+    ) if len(name_rows) else 0.0
+
+    # A case roster must be separately frozen and reviewed. The legacy context
+    # CSV is evidence input, not authority to define its own denominator.
+    roster_path = OUTPUT / "pilot_gate_case_review.csv"
+    roster = (
+        pd.read_csv(roster_path, dtype=str).fillna("")
+        if roster_path.exists()
+        else pd.DataFrame()
+    )
+    required_roster = {
+        "case_id", "firm_key", "year", "review_status",
+        "manual_change_flag", "manual_previous_name", "manual_new_name",
+        "review_evidence_url",
+    }
+    roster_valid = bool(
+        len(roster)
+        and required_roster.issubset(roster.columns)
+        and roster.case_id.ne("").all()
+        and roster.case_id.is_unique
+        and roster.review_status.eq("PASS").all()
+    )
+    case_rows = pd.DataFrame()
+    if roster_valid:
+        key_columns = ["firm_key", "year"]
+        roster["year"] = roster.year.astype(int).astype(str)
+        audit["year"] = audit.year.astype(int).astype(str)
+        case_rows = roster.merge(
+            audit, on=key_columns, how="left", validate="one_to_one", suffixes=("", "_audit")
         )
-        if len(reviewed)
-        else 0.0
-    )
-    change_cases = audit.loc[audit.change_case_reviewed.eq("YES")]
-    change_flag_accuracy = (
-        float(
-            change_cases.company_name_change_flag.eq(
-                change_cases.audited_change_flag
-            ).mean()
+        roster_valid = bool(
+            len(case_rows) == len(roster)
+            and case_rows.company_name_change_flag.ne("").all()
+            and case_rows.legal_name_previous.ne("").all()
+            and case_rows.legal_name_new.ne("").all()
+            and case_rows.manual_change_flag.ne("").all()
+            and case_rows.manual_previous_name.ne("").all()
+            and case_rows.manual_new_name.ne("").all()
+            and case_rows.review_evidence_url.str.startswith("https://").all()
         )
-        if len(change_cases)
-        else 0.0
-    )
-    previous_name_accuracy = (
-        float(
-            change_cases.legal_name_previous.eq(
-                change_cases.audited_previous_legal_name
-            ).mean()
+    if len(case_rows):
+        flag_accuracy = float(
+            case_rows.company_name_change_flag.eq(case_rows.manual_change_flag).mean()
         )
-        if len(change_cases)
-        else 0.0
-    )
-    new_name_accuracy = (
-        float(
-            change_cases.legal_name_new.eq(change_cases.audited_new_legal_name).mean()
+        previous_accuracy = float(
+            case_rows.legal_name_previous.eq(case_rows.manual_previous_name).mean()
         )
-        if len(change_cases)
-        else 0.0
-    )
-    pairs = set(zip(statuses.firm_key.astype(str), statuses.year.astype(int)))
-    targets = set(
-        zip(
-            pd.read_csv(OUTPUT / "pilot_firm_year_targets.csv", dtype={"firm_key": str})
-            .firm_key.astype(str),
-            pd.read_csv(OUTPUT / "pilot_firm_year_targets.csv").year.astype(int),
-        )
-    )
-    summary = json.loads((OUTPUT / "pilot_summary.json").read_text(encoding="utf-8"))
-    summary.update(
-        status_key_set_exact=validate_firm_year_status_set(targets, pairs),
-        pilot_firms=int(sample.firm_key.nunique()),
-        target_firm_years=len(targets),
-        legal_name_precision=legal_precision,
-        security_abbreviation_false_positives=false_positives,
-        human_audit_unreviewed=unreviewed,
-        legal_name_missing_rate=(
-            1 - int(candidate.sum()) / len(targets) if targets else 0.0
+        new_accuracy = float(case_rows.legal_name_new.eq(case_rows.manual_new_name).mean())
+    else:
+        flag_accuracy = previous_accuracy = new_accuracy = None
+
+    source_evidence = audit
+    metrics: dict[str, object] = {
+        "legal_name_precision": precision,
+        "security_abbreviation_false_positives": false_positives,
+        "human_audit_unreviewed": name_review_unreviewed,
+        "company_name_change_flag_accuracy": flag_accuracy,
+        "previous_name_accuracy": previous_accuracy,
+        "new_name_accuracy": new_accuracy,
+    }
+    strict = {
+        "schema": "cnipa_strict_pilot_gate_v1",
+        "status": "PILOT_GATE_NOT_PASSED",
+        "seed": SEED,
+        "pilot_firms": int(sample.firm_key.nunique()),
+        "target_firm_years": int(len(targets)),
+        "status_key_set_exact": validate_firm_year_status_set(
+            set(zip(targets.firm_key.astype(str), targets.year.astype(int))), pairs
         ),
-        manual_contexts_reviewed=int(len(reviewed) - unreviewed),
-        name_change_case_firm_years=int(len(change_cases)),
-        company_name_change_flag_accuracy=change_flag_accuracy,
-        previous_name_accuracy=previous_name_accuracy,
-        new_name_accuracy=new_name_accuracy,
+        "sample_fingerprint": _frame_fingerprint(sample),
+        "target_fingerprint": _frame_fingerprint(targets),
+        "source_evidence_fingerprint": _frame_fingerprint(source_evidence),
+        "case_roster_fingerprint": _frame_fingerprint(roster),
+        "reviewed_case_ids": roster.case_id.tolist() if roster_valid else [],
+        "change_case_denominator": len(roster) if roster_valid else None,
+        "observed_legacy_review_rows": int(audit.change_case_reviewed.eq("YES").sum()),
+        "review_complete": roster_valid and name_review_unreviewed == 0,
+        "case_roster_reconciled": roster_valid,
+        "metrics": metrics,
+        "pilot_gate_pass": False,
+        "failure_reasons": [],
+    }
+    if not roster_valid:
+        strict["failure_reasons"].append("FROZEN_CASE_ROSTER_MISSING_OR_INVALID")
+    if name_review_unreviewed:
+        strict["failure_reasons"].append("LEGAL_NAME_REVIEW_INCOMPLETE_OR_MISMATCHED")
+    if int(sample.firm_key.nunique()) < 80:
+        strict["failure_reasons"].append("PILOT_FIRM_COUNT_BELOW_MINIMUM")
+    if not strict["status_key_set_exact"]:
+        strict["failure_reasons"].append("STATUS_KEY_SET_NOT_EXACT")
+    if (
+        roster_valid and name_review_unreviewed == 0
+        and strict["status_key_set_exact"]
+        and precision >= 0.99 and false_positives == 0
+        and flag_accuracy == previous_accuracy == new_accuracy == 1.0
+        and len(roster) > 0
+    ):
+        strict.update(pilot_gate_pass=True, status="STRICT_PILOT_GATE_PASS")
+    reconciliation = pd.DataFrame({
+        "firm_key": audit.get("firm_key", ""),
+        "stock_code": audit.get("firm_key", pd.Series(dtype=str))
+        .astype(str).str.split(":").str[1],
+        "year": audit.get("year", ""),
+        "pilot_stratum": audit.get("pilot_stratum", ""),
+        "legal_name_current_in_report": audit.get("legal_name_current_in_report", ""),
+        "legal_name_at_year_end": audit.get("legal_name_at_year_end", ""),
+        "parser_change_flag": audit.get("company_name_change_flag", ""),
+        "parser_previous_name": audit.get("legal_name_previous", ""),
+        "parser_new_name": audit.get("legal_name_new", ""),
+        "parser_effective_date": audit.get("change_effective_date", ""),
+        "parser_evidence_status": audit.get("evidence_status", ""),
+        "manual_change_flag": audit.get("audited_change_flag", ""),
+        "manual_previous_name": audit.get("audited_previous_legal_name", ""),
+        "manual_new_name": audit.get("audited_new_legal_name", ""),
+        "manual_effective_date": audit.get("audited_effective_date", ""),
+        "change_case_originally_reviewed": audit.get(
+            "change_case_reviewed", pd.Series(dtype=str)
+        ).map({"YES": "UNKNOWN_PROVENANCE"}).fillna("NOT_IN_CURRENT_REVIEW"),
+        "change_case_currently_detected": audit.get(
+            "company_name_change_flag", pd.Series(dtype=str)
+        ).eq("YES").astype(str),
+        "source_report_url": audit.get("source_report_url", ""),
+        "source_announcement_id": audit.get("change_announcement_id", ""),
+        "h2_used": audit.get("change_evidence_tier", "").eq("H2").astype(str)
+        if isinstance(audit.get("change_evidence_tier"), pd.Series) else "False",
+        "h2_source_url": audit.get("change_evidence_url", ""),
+        "case_status": audit.get("change_case_reviewed", "").replace(
+            {"YES": "REVIEW_ROW_PRESENT", "": "NOT_MARKED_AS_CASE"}
+        ),
+        "difference_reason": (
+            "Frozen five-case roster is absent; row membership cannot be proven "
+            "from tracked records"
+        ),
+    })
+    reconciliation.loc[
+        reconciliation.change_case_currently_detected.eq("True"), "case_status"
+    ] = "PARSER_DETECTED_CHANGE"
+    reconciliation.loc[reconciliation.h2_used.ne("True"), "h2_source_url"] = ""
+    if "source_url" in statuses.columns:
+        report_sources = statuses[["firm_key", "year", "source_url"]].copy()
+        report_sources["year"] = report_sources.year.astype(str)
+        reconciliation["year"] = reconciliation.year.astype(str)
+        reconciliation = reconciliation.merge(
+            report_sources.drop_duplicates(["firm_key", "year"]),
+            on=["firm_key", "year"], how="left", validate="one_to_one",
+        )
+        reconciliation["source_report_url"] = reconciliation.source_url.fillna("")
+        reconciliation = reconciliation.drop(columns="source_url")
+    reconciliation.to_csv(
+        OUTPUT / "pilot_gate_reconciliation.csv", index=False, encoding="utf-8-sig"
     )
-    summary["pilot_gate_pass"] = bool(
-        summary["status_key_set_exact"]
-        and not summary.get("source_blocked")
-        and summary["pilot_firms"] >= 80
-        and legal_precision >= 0.99
-        and false_positives == 0
-        and unreviewed == 0
-        and len(change_cases) > 0
-        and change_flag_accuracy == 1.0
-        and previous_name_accuracy == 1.0
-        and new_name_accuracy == 1.0
-    )
-    summary["status"] = (
-        "COMPLETE"
-        if summary["status_key_set_exact"] and not summary.get("source_blocked")
-        else "INCOMPLETE"
-    )
-    _atomic_json(OUTPUT / "pilot_summary.json", summary)
-    _atomic_json(OUTPUT / "pilot_run_state.json", summary)
+    _atomic_json(OUTPUT / "pilot_strict_gate_summary.json", strict)
+    summary = strict
     print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)
     return summary
 
@@ -726,18 +908,21 @@ def _run(args: argparse.Namespace) -> int:
     elif args.stage == "full":
         if not args.pilot_pass:
             raise ValueError("FULL_REQUIRES_EXPLICIT_PILOT_PASS")
-        pilot_path = OUTPUT / "pilot_summary.json"
-        if not pilot_path.exists():
-            raise ValueError("PILOT_SUMMARY_NOT_FOUND")
-        pilot = json.loads(pilot_path.read_text(encoding="utf-8"))
-        if not (
-            pilot.get("status") == "COMPLETE"
-            and pilot.get("pilot_gate_pass") is True
-            and pilot.get("status_key_set_exact") is True
-            and int(pilot.get("pilot_firms", 0)) >= 80
-            and float(pilot.get("legal_name_precision", 0)) >= 0.99
-            and int(pilot.get("security_abbreviation_false_positives", -1)) == 0
-            and int(pilot.get("human_audit_unreviewed", 1)) == 0
+        strict_path = OUTPUT / "pilot_strict_gate_summary.json"
+        sample_path = OUTPUT / "pilot_sample.csv"
+        pilot_targets_path = OUTPUT / "pilot_firm_year_targets.csv"
+        audit_path = OUTPUT / "pilot_context_audit.csv"
+        roster_path = OUTPUT / "pilot_gate_case_review.csv"
+        required_paths = (strict_path, sample_path, pilot_targets_path, audit_path, roster_path)
+        if not all(path.exists() for path in required_paths):
+            raise ValueError("CANONICAL_STRICT_PILOT_GATE_INPUTS_MISSING")
+        strict_summary = json.loads(strict_path.read_text(encoding="utf-8"))
+        frozen_sample = pd.read_csv(sample_path, dtype=str).fillna("")
+        frozen_targets = pd.read_csv(pilot_targets_path, dtype=str).fillna("")
+        frozen_audit = pd.read_csv(audit_path, dtype=str).fillna("")
+        frozen_roster = pd.read_csv(roster_path, dtype=str).fillna("")
+        if not _strict_pilot_authorized(
+            strict_summary, frozen_sample, frozen_targets, frozen_audit, frozen_roster
         ):
             raise ValueError("PILOT_GATE_NOT_PASSED")
         targets = primary.copy()
@@ -865,16 +1050,10 @@ def _run(args: argparse.Namespace) -> int:
             "change_announcement_id", "change_pdf_sha256",
         ]
         review = frame[[column for column in review_columns if column in frame]].copy()
-        review["human_audit_status"] = ""
-        review["audited_legal_name"] = ""
-        review["abbreviation_false_positive"] = ""
-        review["change_case_reviewed"] = ""
-        review["audited_change_flag"] = ""
-        review["audited_previous_legal_name"] = ""
-        review["audited_new_legal_name"] = ""
-        review["audited_effective_date"] = ""
-        review["wrong_year"] = ""
-        review["wrong_document"] = ""
+        prior_audit_path = OUTPUT / "pilot_context_audit.csv"
+        if prior_audit_path.exists():
+            prior = pd.read_csv(prior_audit_path, dtype=str).fillna("")
+            review = _preserve_manual_audit(review, prior)
         review.to_csv(OUTPUT / "pilot_context_audit.csv", index=False, encoding="utf-8-sig")
     successful = frame.loc[frame.status.isin({
         "PENDING", "COMPLETE_NO_CHANGE", "COMPLETE_NAME_CHANGE"

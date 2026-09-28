@@ -32,6 +32,8 @@ CNIPA 查询名称只来自已核验的当前法人全称和有正式来源支�
 
 当前名称预检报告见 `docs/cnipa_entity_name_audit.md`。企业级名称证据、碰撞表和查询批次保留在本地 ignored 输出。即使查询名存在多 firm-key 映射，也只记录碰撞，不自动合并或分配专利结果。未确认历史名称有效期时保留 `temporal_match_uncertain`，不能静默跨期匹配。
 
+4.4A-R3 后，Full 仅接受 `pilot_strict_gate_summary.json`，并校验 seed、固定样本/目标/来源证据指纹、完整人工审阅、案例 roster 和全部 Gate 指标。旧 `pilot_summary.json` 及命令行 `--pilot-pass` 不再构成授权。冻结版 5 案例的逐案 roster 尚无法从跟踪材料恢复，因此当前 strict Gate 为 `PILOT_GATE_NOT_PASSED`；不能据现存 6 条 firm-year review 记录自行确定 canonical 分母，也不运行 targeted Full refresh。详情见 `docs/cnipa_entity_name_audit.md`。
+
 R2 先完成 92 家/461 firm-year 的固定 Pilot，再从既有 CNINFO 年报索引恢复并审计 2020—2024 全目标证据；身份键纠正后主窗口为 23,448 firm-year，其中 22,753 行提取到法人名称，353 行的名称时间关系仍未决，695 行没有提取到名称。当前状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；不得将查询预检批次视为已完整确认的历史申请人集合。
 
 每批最多 20 个名称、最多 1,500 字符仍是项目暂定参数，不是已确认的 CNIPA 官方网页限制；须在合法访问后实际核验。名称批次预检不等于 CNIPA 查询或专利数据采集。

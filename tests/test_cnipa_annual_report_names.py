@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from scripts.run_cninfo_legal_name_recovery_20260927 import (
     _coverage_status,
+    _frame_fingerprint,
     _load_status_cache,
+    _preserve_manual_audit,
     _process_one,
     _resolve_cross_year_name_changes,
+    _strict_pilot_authorized,
 )
 from src.cnipa_annual_report_names import (
     extract_annual_report_legal_name_evidence,
@@ -14,6 +17,154 @@ from src.cnipa_annual_report_names import (
     validate_pdf_payload,
 )
 from src.historical_province_sources import CNINFOAnnualReportClient
+
+
+def _strict_summary_fixture(sample, targets, audit, roster):
+    return {
+        "schema": "cnipa_strict_pilot_gate_v1",
+        "status": "STRICT_PILOT_GATE_PASS",
+        "seed": "20260927",
+        "pilot_gate_pass": True,
+        "status_key_set_exact": True,
+        "pilot_firms": 80,
+        "target_firm_years": 80,
+        "case_roster_reconciled": True,
+        "sample_fingerprint": _frame_fingerprint(sample),
+        "target_fingerprint": _frame_fingerprint(targets),
+        "source_evidence_fingerprint": _frame_fingerprint(audit),
+        "case_roster_fingerprint": _frame_fingerprint(roster),
+        "review_complete": True,
+        "reviewed_case_ids": ["case-1"],
+        "change_case_denominator": 1,
+        "metrics": {
+            "legal_name_precision": 1.0,
+            "security_abbreviation_false_positives": 0,
+            "human_audit_unreviewed": 0,
+            "company_name_change_flag_accuracy": 1.0,
+            "previous_name_accuracy": 1.0,
+            "new_name_accuracy": 1.0,
+        },
+    }
+
+
+def test_strict_pilot_summary_must_match_fingerprints_and_reviews():
+    import pandas as pd
+
+    sample = pd.DataFrame([{"firm_key": f"SSE:{i:06}:2000-01-01"} for i in range(80)])
+    targets = pd.DataFrame(
+        [{"firm_key": row.firm_key, "year": 2024} for row in sample.itertuples()]
+    )
+    audit = pd.DataFrame([{"source_url": "https://example.test/report.pdf"}])
+    roster = pd.DataFrame([{
+        "case_id": "case-1", "firm_key": sample.firm_key.iloc[0], "year": 2024,
+        "review_status": "PASS", "manual_change_flag": "YES",
+        "manual_previous_name": "甲股份有限公司", "manual_new_name": "乙股份有限公司",
+        "review_evidence_url": "https://example.test/notice.pdf",
+    }])
+    summary = _strict_summary_fixture(sample, targets, audit, roster)
+
+    assert _strict_pilot_authorized(summary, sample, targets, audit, roster)
+    assert not _strict_pilot_authorized(
+        summary, sample.assign(firm_key="SZSE:000001:2000-01-01"), targets, audit, roster
+    )
+    assert not _strict_pilot_authorized(
+        {**summary, "review_complete": False}, sample, targets, audit, roster
+    )
+    assert not _strict_pilot_authorized(
+        {**summary, "change_case_denominator": 2}, sample, targets, audit, roster
+    )
+    assert not _strict_pilot_authorized(
+        summary, sample, targets, audit, roster.assign(review_status="PENDING")
+    )
+
+
+def test_legacy_pilot_pass_cannot_authorize_full():
+    import pandas as pd
+
+    sample = pd.DataFrame([{"firm_key": f"SSE:{i:06}:2000-01-01"} for i in range(80)])
+    targets = pd.DataFrame(
+        [{"firm_key": row.firm_key, "year": 2024} for row in sample.itertuples()]
+    )
+    audit = pd.DataFrame([{"source_url": "https://example.test/report.pdf"}])
+    legacy = {"status": "COMPLETE", "pilot_gate_pass": True}
+
+    assert not _strict_pilot_authorized(legacy, sample, targets, audit, pd.DataFrame())
+
+
+def test_rerun_preserves_manual_fields_only_when_source_identity_matches():
+    import pandas as pd
+
+    evidence = {
+        "firm_key": "SSE:600001:2000-01-01", "year": 2024,
+        "legal_name_current_in_report": "甲股份有限公司",
+        "legal_name_at_year_end": "甲股份有限公司",
+        "company_name_change_flag": "NO", "legal_name_previous": "",
+        "legal_name_new": "", "change_effective_date": "",
+        "change_evidence_url": "", "change_pdf_sha256": "",
+    }
+    prior = pd.DataFrame([{
+        **evidence, "human_audit_status": "PASS",
+        "audited_legal_name": "甲股份有限公司",
+    }])
+
+    same = _preserve_manual_audit(pd.DataFrame([evidence]), prior)
+    changed = _preserve_manual_audit(
+        pd.DataFrame([{**evidence, "legal_name_at_year_end": "乙股份有限公司"}]), prior
+    )
+
+    assert same.loc[0, "human_audit_status"] == "PASS"
+    assert same.loc[0, "audited_legal_name"] == "甲股份有限公司"
+    assert changed.loc[0, "human_audit_status"] == ""
+
+
+def test_name_parser_has_no_pilot_issuer_specific_code_branches():
+    from pathlib import Path
+
+    parser = Path("src/cnipa_annual_report_names.py").read_text(encoding="utf-8")
+    runner = Path(
+        "scripts/run_cninfo_legal_name_recovery_20260927.py"
+    ).read_text(encoding="utf-8")
+
+    for stock_code in ("300237", "600936", "603003", "603196"):
+        assert stock_code not in parser
+        assert stock_code not in runner
+
+
+def test_finalize_pilot_does_not_promote_unreconciled_legacy_summary(tmp_path, monkeypatch):
+    import json
+
+    import pandas as pd
+
+    import scripts.run_cninfo_legal_name_recovery_20260927 as recovery_script
+
+    monkeypatch.setattr(recovery_script, "OUTPUT", tmp_path)
+    sample = pd.DataFrame([{"firm_key": "SSE:600001:2000-01-01"}])
+    targets = pd.DataFrame([{"firm_key": "SSE:600001:2000-01-01", "year": 2024}])
+    status = targets.assign(status="COMPLETE_NO_CHANGE")
+    audit = pd.DataFrame([{
+        "firm_key": "SSE:600001:2000-01-01", "year": 2024,
+        "legal_name_current_in_report": "甲股份有限公司",
+        "legal_name_at_year_end": "甲股份有限公司",
+        "company_name_change_flag": "NO", "legal_name_previous": "",
+        "legal_name_new": "", "human_audit_status": "PASS",
+        "audited_legal_name": "甲股份有限公司",
+        "abbreviation_false_positive": "0", "change_case_reviewed": "",
+        "audited_change_flag": "", "audited_previous_legal_name": "",
+        "audited_new_legal_name": "", "source_url": "https://example.test/report.pdf",
+    }])
+    sample.to_csv(tmp_path / "pilot_sample.csv", index=False)
+    targets.to_csv(tmp_path / "pilot_firm_year_targets.csv", index=False)
+    status.to_csv(tmp_path / "pilot_status.csv", index=False)
+    audit.to_csv(tmp_path / "pilot_context_audit.csv", index=False)
+    legacy = {"status": "COMPLETE", "pilot_gate_pass": True, "name_change_case_firm_years": 6}
+    (tmp_path / "pilot_summary.json").write_text(json.dumps(legacy), encoding="utf-8")
+
+    strict = recovery_script._finalize_pilot_audit()
+
+    assert strict["pilot_gate_pass"] is False
+    assert strict["change_case_denominator"] is None
+    assert "FROZEN_CASE_ROSTER_MISSING_OR_INVALID" in strict["failure_reasons"]
+    assert json.loads((tmp_path / "pilot_summary.json").read_text(encoding="utf-8")) == legacy
 
 
 def test_full_run_fallback_accepts_cninfo_list_annual_reports_source_url():
@@ -448,6 +599,20 @@ def test_h2_announcement_rejects_a_notice_without_both_expected_names():
         expected_year=2024,
         previous_legal_name="甲公司股份有限公司",
         new_legal_name="乙公司股份有限公司",
+    )
+
+    assert evidence["evidence_status"] == "TEMPORAL_UNRESOLVED"
+    assert evidence["failure_reason"] == "notice_does_not_confirm_expected_name_pair"
+
+
+def test_h2_announcement_rejects_two_names_not_linked_as_the_expected_pair():
+    evidence = extract_company_name_change_announcement(
+        "公司名称由甲股份有限公司变更为丙股份有限公司；乙股份有限公司为本公告关联方。"
+        "本公司完成名称变更登记。",
+        expected_year=2025,
+        previous_legal_name="甲股份有限公司",
+        new_legal_name="乙股份有限公司",
+        announcement_date="2025-05-01",
     )
 
     assert evidence["evidence_status"] == "TEMPORAL_UNRESOLVED"

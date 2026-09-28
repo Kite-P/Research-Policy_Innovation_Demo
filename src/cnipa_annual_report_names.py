@@ -394,6 +394,21 @@ def extract_company_name_change_announcement(
     ):
         result["failure_reason"] = "notice_does_not_confirm_expected_name_pair"
         return result
+    pair_patterns = (
+        re.escape(previous)
+        + r"[“”\"'「」『』:：,，;；、()（）-]{0,8}"
+        + r"(?:变更为|更名为|变更成|更名成|变为)"
+        + r"[“”\"'「」『』:：,，;；、()（）-]{0,8}"
+        + re.escape(new),
+        r"(?:原公司名称|原名称|变更前(?:公司名称)?)[:：]?"
+        + re.escape(previous)
+        + r"[，,；;|]{0,6}"
+        + r"(?:新公司名称|新名称|现公司名称|变更后(?:公司名称)?)[:：]?"
+        + re.escape(new),
+    )
+    if not any(re.search(pattern, compact) for pattern in pair_patterns):
+        result["failure_reason"] = "notice_does_not_confirm_expected_name_pair"
+        return result
 
     date_pattern = re.compile(
         r"(20\d{2})年(\d{1,2})月(\d{1,2})日"

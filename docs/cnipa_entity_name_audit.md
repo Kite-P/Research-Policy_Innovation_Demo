@@ -57,3 +57,11 @@ Full 目标与 status 键集合精确一致，共 23,448 行。处理复用了 H
 CNINFO 身份键更正后，现有名称与 year coverage 文件仅按新 firm-year key 做了只读对齐；本轮未登录 CNIPA、未发起 CNIPA 请求，也未下载专利。当前 primary 目标为 23,448 个 firm-year，2025 审计为 5,089 个 firm-year；名称键与当前目标相符。
 
 严格按冻结的 Pilot Gate 复核，pilot Gate 不通过，Full 状态保持 `FULL_EVIDENCE_CACHE_PRE_GATE`，整体仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`。本地 ignored 的 `pilot_summary.json` / `pilot_run_state.json` 却报告 6 个案例、全项 1.0 和 `pilot_gate_pass=true`，与计划记录的 5 个变更案例及 Gate 未通过结论冲突。为避免覆盖原始证据，本轮未修改这些文件；该冲突不作为通过依据。353 个时间关系未决、695 个主窗口 firm-year 未抽取到法人名称；`zero_semantics`、`missing_semantics` 仍为 pending。R2K 最终全库 pytest：294 passed；Ruff：`All checks passed!`；uv 依赖检查：116 packages compatible；push hygiene：PASS。
+
+## 4.4A-R3 严格 Pilot Gate 收口
+
+R3 对同一 seed、92 家和 461 个 firm-year 的既有 Pilot 做了本地只读取证，没有重新抽样或请求 H2。现存 `pilot_context_audit.csv` 有 6 行被标记为当前已审核的更名相关 firm-year；旧 `_finalize_pilot_audit()` 将这些行数直接当作独立案例数，并用该文件自身的标注覆盖 legacy summary，因此 `6 / 1.0 / PASS` 不能证明冻结 Gate 通过。跟踪文档保留的冻结结论仍是 5 个案例、各项准确率 3/5。冻结版逐案 roster/版本没有留存，故无法证据化指出当前 6 行中的哪一行是冻结口径之外的第六项，也不能把行数推断成唯一事件数；canonical denominator 当前未能确定。
+
+本地 ignored 输出新增 `pilot_gate_reconciliation.csv` 与 `pilot_strict_gate_summary.json`。严格摘要记录 92/461、样本/目标/来源证据 SHA-256 指纹、6 条 legacy review 行、未确定的案例分母和 `PILOT_GATE_NOT_PASSED`。它不改写原 `pilot_summary.json`，也不授权 Full。未来必须有独立冻结的 `pilot_gate_case_review.csv`，逐例提供人工结论及证据链接，并通过样本、目标和来源证据指纹校验后，才可判定 Gate。
+
+Runner 已阻断旧 summary 与 `--pilot-pass` 单独授权 Full；H2 公告现须明确形成所审核的旧名→新名关系，不能仅凭公告中分别出现两个名称和通用“完成变更”语句通过。增加 H1/H2 时间解析和严格 Gate 回归测试。现有缓存证据记载 `300237` 2024 年更名于目标年内完成，`600936` 2025 年更名于 2025-12-31 完成；本轮没有新的 H2 网络请求，也未重下年报。Full cache 保持 `FULL_EVIDENCE_CACHE_PRE_GATE`，没有 targeted refresh。总状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；353 个时间关系未决、695 行缺少名称，`zero_semantics` / `missing_semantics` 保持 pending；未访问 CNIPA 专利系统。
