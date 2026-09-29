@@ -46,6 +46,8 @@ STATUSES = {
     "SOURCE_BLOCKED",
 }
 RETRYABLE_STATUSES = {"PDF_FETCH_FAILED", "TEXT_EXTRACTION_FAILED", "SOURCE_BLOCKED"}
+FULL_TARGET_FIRM_YEARS = 23448
+SUCCESSFUL_STATUSES = {"PENDING", "COMPLETE_NO_CHANGE", "COMPLETE_NAME_CHANGE"}
 
 
 def _atomic_json(path: Path, payload: dict[str, object]) -> None:
@@ -159,6 +161,18 @@ def _validate_evidence_state_ground_truth(
         | no_state_rows.verified_change_event_outside_target_year.eq("YES")
     ).all()
     keys = list(zip(reviewed.firm_key.astype(str), reviewed.year, strict=True))
+    derived_flags = reviewed.apply(
+        lambda row: (
+            "YES"
+            if row.verified_change_event_in_target_year == "YES"
+            else "NO"
+            if row.explicit_no_change_disclosure == "YES"
+            else "NO"
+            if row.verified_change_event_outside_target_year == "YES"
+            else "UNKNOWN"
+        ),
+        axis=1,
+    )
     complete = bool(
         not reviewed.year.isna().any()
         and len(reviewed) > 0
@@ -181,6 +195,7 @@ def _validate_evidence_state_ground_truth(
             & reviewed.verified_change_event_outside_target_year.eq("YES")
         ).any()
         and each_no_has_positive_basis
+        and derived_flags.eq(reviewed.review_expected_parser_flag).all()
     )
     complete = bool(
         complete
@@ -1261,6 +1276,163 @@ def _load_status_cache(
     return records
 
 
+def _normalized_pair_set(frame: pd.DataFrame) -> set[tuple[str, int]]:
+    if not {"firm_key", "year"}.issubset(frame.columns):
+        raise ValueError("FIRM_YEAR_KEYS_MISSING")
+    years = pd.to_numeric(frame.year, errors="coerce")
+    if years.isna().any() or (years % 1).ne(0).any():
+        raise ValueError("INVALID_FIRM_YEAR_KEY")
+    return set(zip(frame.firm_key.astype(str), years.astype(int), strict=True))
+
+
+def _validate_full_baseline(
+    baseline: pd.DataFrame, expected_pairs: set[tuple[str, int]]
+) -> None:
+    if len(baseline) != FULL_TARGET_FIRM_YEARS:
+        raise ValueError("TARGETED_REFRESH_BASELINE_ROW_COUNT_MISMATCH")
+    actual_pairs = _normalized_pair_set(baseline)
+    if baseline.duplicated(["firm_key", "year"]).any():
+        raise ValueError("TARGETED_REFRESH_BASELINE_DUPLICATE_KEYS")
+    if len(actual_pairs) != FULL_TARGET_FIRM_YEARS or actual_pairs != expected_pairs:
+        raise ValueError("TARGETED_REFRESH_BASELINE_KEY_SET_MISMATCH")
+
+
+def _load_targeted_refresh_manifest(
+    path: Path, expected_pairs: set[tuple[str, int]]
+) -> tuple[pd.DataFrame, set[tuple[str, int]], str]:
+    manifest = pd.read_csv(path, dtype={"firm_key": str}, keep_default_na=False)
+    required = {"firm_key", "year", "reason"}
+    if not required.issubset(manifest.columns) or manifest.empty:
+        raise ValueError("TARGETED_REFRESH_MANIFEST_EMPTY_OR_MISSING_COLUMNS")
+    manifest = manifest[["firm_key", "year", "reason"]].copy()
+    manifest["firm_key"] = manifest.firm_key.astype(str).str.strip()
+    manifest["reason"] = manifest.reason.astype(str).str.strip()
+    years = pd.to_numeric(manifest.year, errors="coerce")
+    if (
+        manifest.firm_key.eq("").any()
+        or manifest.reason.eq("").any()
+        or years.isna().any()
+        or (years % 1).ne(0).any()
+    ):
+        raise ValueError("TARGETED_REFRESH_MANIFEST_INVALID_ROWS")
+    manifest["year"] = years.astype(int)
+    pairs = list(zip(manifest.firm_key, manifest.year, strict=True))
+    if len(set(pairs)) != len(pairs):
+        raise ValueError("TARGETED_REFRESH_MANIFEST_DUPLICATE_KEYS")
+    pair_set = set(pairs)
+    if not pair_set.issubset(expected_pairs):
+        raise ValueError("TARGETED_REFRESH_MANIFEST_OUT_OF_TARGET_KEYS")
+    manifest = manifest.sort_values(["firm_key", "year"], kind="stable").reset_index(drop=True)
+    return manifest, pair_set, _frame_fingerprint(manifest)
+
+
+def _count_stale_success_cache_rows(
+    cache_dir: Path, expected_pairs: set[tuple[str, int]]
+) -> int:
+    count = 0
+    seen: set[tuple[str, int]] = set()
+    for path in cache_dir.glob("*.json"):
+        try:
+            row = json.loads(path.read_text(encoding="utf-8"))
+            key = (str(row["firm_key"]), int(row["year"]))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if (
+            key in expected_pairs
+            and key not in seen
+            and row.get("status") in SUCCESSFUL_STATUSES
+            and row.get("parser_revision") != PARSER_REVISION
+        ):
+            count += 1
+            seen.add(key)
+    return count
+
+
+def _guard_full_resume_against_wide_stale_reparse(
+    full_status_path: Path,
+    full_state_path: Path,
+    cache_dir: Path,
+    expected_pairs: set[tuple[str, int]],
+) -> int:
+    if not full_status_path.exists() or not full_state_path.exists():
+        return 0
+    state = json.loads(full_state_path.read_text(encoding="utf-8"))
+    if not (
+        state.get("stage") == "full"
+        and state.get("status") == "COMPLETE"
+        and state.get("status_key_set_exact") is True
+        and int(state.get("target_firm_years", -1)) == FULL_TARGET_FIRM_YEARS
+    ):
+        return 0
+    baseline = pd.read_csv(full_status_path, dtype={"firm_key": str})
+    _validate_full_baseline(baseline, expected_pairs)
+    stale_count = _count_stale_success_cache_rows(cache_dir, expected_pairs)
+    if stale_count:
+        raise ValueError(
+            "FULL_WIDE_REPARSE_BLOCKED: USE --targeted-refresh-manifest "
+            f"(stale_successful_cache_rows={stale_count})"
+        )
+    return stale_count
+
+
+def _replace_targeted_full_rows(
+    baseline: pd.DataFrame,
+    replacements: pd.DataFrame,
+    target_pairs: set[tuple[str, int]],
+    expected_pairs: set[tuple[str, int]],
+) -> tuple[pd.DataFrame, dict[str, str]]:
+    _validate_full_baseline(baseline, expected_pairs)
+    if _normalized_pair_set(replacements) != target_pairs:
+        raise ValueError("TARGETED_REFRESH_REPLACEMENT_KEY_SET_MISMATCH")
+    baseline_work = baseline.copy()
+    replacement_work = replacements.copy()
+    baseline_work["firm_key"] = baseline_work.firm_key.astype(str)
+    baseline_work["year"] = pd.to_numeric(baseline_work.year).astype(int)
+    replacement_work["firm_key"] = replacement_work.firm_key.astype(str)
+    replacement_work["year"] = pd.to_numeric(replacement_work.year).astype(int)
+    baseline_pairs = list(
+        zip(baseline_work.firm_key, baseline_work.year, strict=True)
+    )
+    before_target = baseline.loc[
+        baseline.apply(lambda row: (str(row.firm_key), int(row.year)) in target_pairs, axis=1)
+    ].copy()
+    before_other = baseline_work.loc[
+        baseline.apply(lambda row: (str(row.firm_key), int(row.year)) not in target_pairs, axis=1)
+    ].copy()
+    replacement_by_key = replacement_work.set_index(["firm_key", "year"], drop=False)
+    merged_rows = []
+    for key in baseline_pairs:
+        if key in target_pairs:
+            merged_rows.append(replacement_by_key.loc[key].to_dict())
+        else:
+            merged_rows.append(
+                baseline_work.loc[
+                    baseline_work.firm_key.eq(key[0])
+                    & baseline_work.year.eq(key[1])
+                ].iloc[0].to_dict()
+            )
+    result_columns = list(dict.fromkeys([*baseline.columns, *replacement_work.columns]))
+    result = pd.DataFrame(merged_rows, columns=result_columns)
+    after_target = result.loc[
+        result.apply(lambda row: (str(row.firm_key), int(row.year)) in target_pairs, axis=1)
+    ].copy()
+    after_other = result.loc[
+        result.apply(lambda row: (str(row.firm_key), int(row.year)) not in target_pairs, axis=1)
+    ].copy()
+    before_target_hash = _frame_fingerprint(before_target)
+    after_target_hash = _frame_fingerprint(after_target)
+    before_other_hash = _frame_fingerprint(before_other[list(baseline.columns)])
+    after_other_hash = _frame_fingerprint(after_other[list(baseline.columns)])
+    if before_other_hash != after_other_hash:
+        raise ValueError("TARGETED_REFRESH_NON_TARGET_ROWS_CHANGED")
+    return result, {
+        "target_before_sha256": before_target_hash,
+        "target_after_sha256": after_target_hash,
+        "non_target_before_sha256": before_other_hash,
+        "non_target_after_sha256": after_other_hash,
+    }
+
+
 def _write_entity_year_coverage() -> None:
     full_path = OUTPUT / "full_status.csv"
     audit_path = OUTPUT / "audit-2025_status.csv"
@@ -1968,8 +2140,57 @@ def _run(args: argparse.Namespace) -> int:
         targets = audit_2025.copy()
         targets["pilot_stratum"] = "audit_2025"
 
+    full_target_pairs = _normalized_pair_set(primary) if args.stage == "full" else set()
+    full_baseline: pd.DataFrame | None = None
+    targeted_manifest: pd.DataFrame | None = None
+    targeted_manifest_fingerprint = ""
+    targeted_pairs: set[tuple[str, int]] = set()
+    targeted_path_value = getattr(args, "targeted_refresh_manifest", None)
+    if args.stage == "full":
+        full_status_path = OUTPUT / "full_status.csv"
+        full_state_path = OUTPUT / "full_run_state.json"
+        full_cache_dir = OUTPUT / "cache"
+        if targeted_path_value:
+            if not full_status_path.exists() or not full_state_path.exists():
+                raise ValueError("TARGETED_REFRESH_REQUIRES_EXISTING_FULL_BASELINE_AND_STATE")
+            full_baseline = pd.read_csv(full_status_path, dtype={"firm_key": str})
+            _validate_full_baseline(full_baseline, full_target_pairs)
+            existing_state = json.loads(full_state_path.read_text(encoding="utf-8"))
+            if (
+                existing_state.get("stage") != "full"
+                or existing_state.get("status") != "COMPLETE"
+                or existing_state.get("status_key_set_exact") is not True
+                or int(existing_state.get("target_firm_years", -1)) != FULL_TARGET_FIRM_YEARS
+            ):
+                raise ValueError("TARGETED_REFRESH_FULL_RUN_STATE_NOT_COMPLETE")
+            targeted_manifest, targeted_pairs, targeted_manifest_fingerprint = (
+                _load_targeted_refresh_manifest(Path(targeted_path_value), full_target_pairs)
+            )
+            targets = targets.loc[
+                targets.apply(
+                    lambda row: (str(row.firm_key), int(row.year)) in targeted_pairs, axis=1
+                )
+            ].copy()
+            if len(targets) != len(targeted_pairs):
+                raise ValueError("TARGETED_REFRESH_TARGET_SELECTION_MISMATCH")
+        elif (
+            args.resume
+            and full_status_path.exists()
+            and full_state_path.exists()
+        ):
+            _guard_full_resume_against_wide_stale_reparse(
+                full_status_path,
+                full_state_path,
+                full_cache_dir,
+                full_target_pairs,
+            )
+
     target_pairs = set(zip(targets.firm_key.astype(str), targets.year.astype(int)))
-    state_path = OUTPUT / f"{args.stage}_run_state.json"
+    state_path = (
+        OUTPUT / "targeted_refresh_run_state.json"
+        if targeted_path_value
+        else OUTPUT / f"{args.stage}_run_state.json"
+    )
     if state_path.exists() and not args.resume:
         raise ValueError(f"{args.stage.upper()}_STATE_EXISTS_USE_RESUME")
     old_state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
@@ -1986,6 +2207,9 @@ def _run(args: argparse.Namespace) -> int:
         status_rows = _load_status_cache(
             cache_dir, target_pairs, retry_failures=args.retry_failures
         )
+    if targeted_path_value:
+        for pair in target_pairs:
+            status_rows.pop(pair, None)
     for firm_key, year in args.refresh_firm_year:
         pair = (str(firm_key), int(year))
         if pair not in target_pairs:
@@ -2007,6 +2231,14 @@ def _run(args: argparse.Namespace) -> int:
             "processed_firm_years": len(status_rows),
             "remaining_firm_years": len(missing),
             "source_blocked": False,
+            **(
+                {
+                    "targeted_manifest_count": len(targeted_pairs),
+                    "targeted_manifest_sha256": targeted_manifest_fingerprint,
+                }
+                if targeted_path_value
+                else {}
+            ),
         },
     )
     source_blocked = False
@@ -2036,6 +2268,14 @@ def _run(args: argparse.Namespace) -> int:
                         "remaining_firm_years": len(target_pairs) - len(status_rows),
                         "source_blocked": False,
                         "last_completed": f"{firm_key}|{year}",
+                        **(
+                            {
+                                "targeted_manifest_count": len(targeted_pairs),
+                                "targeted_manifest_sha256": targeted_manifest_fingerprint,
+                            }
+                            if targeted_path_value
+                            else {}
+                        ),
                     },
                 )
                 print(f"PROGRESS {args.stage} {len(status_rows)}/{len(target_pairs)}", flush=True)
@@ -2066,10 +2306,18 @@ def _run(args: argparse.Namespace) -> int:
                 "remaining_firm_years": len(target_pairs) - len(status_rows),
                 "source_blocked": True,
                 "block_reason": str(exc),
+                **(
+                    {
+                        "targeted_manifest_count": len(targeted_pairs),
+                        "targeted_manifest_sha256": targeted_manifest_fingerprint,
+                    }
+                    if targeted_path_value
+                    else {}
+                ),
             },
         )
 
-    if not source_blocked:
+    if not source_blocked and not targeted_path_value:
         _, h2_source_blocked = _resolve_cross_year_name_changes(
             status_rows, targets, client, args.stage
         )
@@ -2081,7 +2329,18 @@ def _run(args: argparse.Namespace) -> int:
     else:
         status = "SOURCE_BLOCKED" if source_blocked else "COMPLETE"
     frame = pd.DataFrame(status_rows.values())
-    frame.to_csv(OUTPUT / f"{args.stage}_status.csv", index=False, encoding="utf-8-sig")
+    targeted_fingerprints: dict[str, str] = {}
+    if targeted_path_value:
+        if full_baseline is None or targeted_manifest is None:
+            raise ValueError("TARGETED_REFRESH_BASELINE_NOT_LOADED")
+        frame, targeted_fingerprints = _replace_targeted_full_rows(
+            full_baseline, frame, target_pairs, full_target_pairs
+        )
+        frame.to_csv(OUTPUT / "full_status.csv", index=False, encoding="utf-8-sig")
+    else:
+        frame.to_csv(
+            OUTPUT / f"{args.stage}_status.csv", index=False, encoding="utf-8-sig"
+        )
     if args.stage == "pilot":
         review_columns = [
             "firm_key",
@@ -2166,8 +2425,31 @@ def _run(args: argparse.Namespace) -> int:
         if "evidence_status" in frame
         else 0,
     }
-    _atomic_json(OUTPUT / f"{args.stage}_summary.json", summary)
-    _atomic_json(state_path, {**summary, "remaining_firm_years": len(target_pairs - status_pairs)})
+    if targeted_path_value:
+        summary["targeted_refresh"] = {
+            "manifest_count": len(targeted_pairs),
+            "manifest_sha256": targeted_manifest_fingerprint,
+            **targeted_fingerprints,
+            "non_target_rows_preserved": (
+                targeted_fingerprints.get("non_target_before_sha256")
+                == targeted_fingerprints.get("non_target_after_sha256")
+            ),
+        }
+        _atomic_json(OUTPUT / "targeted_refresh_summary.json", summary)
+        _atomic_json(
+            state_path,
+            {
+                **summary,
+                "remaining_firm_years": len(target_pairs - status_pairs),
+                "targeted_manifest_count": len(targeted_pairs),
+                "targeted_manifest_sha256": targeted_manifest_fingerprint,
+            },
+        )
+    else:
+        _atomic_json(OUTPUT / f"{args.stage}_summary.json", summary)
+        _atomic_json(
+            state_path, {**summary, "remaining_firm_years": len(target_pairs - status_pairs)}
+        )
     if args.stage == "audit-2025" and (OUTPUT / "full_status.csv").exists():
         _write_entity_year_coverage()
     print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)
@@ -2186,11 +2468,14 @@ def main() -> int:
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--refresh-firm-year", nargs=2, action="append", default=[])
     parser.add_argument("--refresh-firm-key", action="append", default=[])
+    parser.add_argument("--targeted-refresh-manifest", type=Path)
     parser.add_argument("--retry-failures", action="store_true")
     parser.add_argument("--pilot-pass", action="store_true")
     parser.add_argument("--spacing", type=float, default=1.0)
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
+    if args.targeted_refresh_manifest is not None and args.stage != "full":
+        parser.error("--targeted-refresh-manifest is only valid with --stage full")
     if args.finalize_pilot_audit:
         _finalize_pilot_audit()
         return 0

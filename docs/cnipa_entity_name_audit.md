@@ -111,3 +111,11 @@ v3 strict summary 绑定 evidence-state GT fingerprint `351231a42842ae08e0d612b3
 Full 授权 schema 升为 `cnipa_strict_pilot_gate_v3`，必须重算并匹配 evidence-state fingerprint、14-row 分母和 1.0 evidence-state accuracy。v1、legacy、旧 v2 summary 与 `--pilot-pass` 单独均不可绕过。R3G 未执行 Full 23,448、targeted Full、CNIPA 专利系统访问、353/695 修复、BSE、财务/省份/政策流程或回归。范围状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；`zero_semantics` 和 `missing_semantics` 仍为 pending。
 
 R3G 最终验证：pytest 326 passed；Ruff `All checks passed!`；`uv pip check` 检查 116 packages 且兼容；push hygiene PASS。独立审核完整，旧 GT fingerprints 精确不变。仅涉及 Gate runner、测试、CNIPA protocol/audit/progress 文档及 metadata；不含 parser 行为或数据范围修改。
+
+## 4.4A-R3G-K Canonical Runner 与 Full 定向刷新安全
+
+唯一实现固定为 `scripts/run_cninfo_legal_name_recovery_20260929.py`；`20260927.py` 已收敛为只委托 canonical `main()` 的兼容入口。测试导入迁移到 canonical，保留一项旧入口委托测试；解析器及 canonical runner 的企业代码特判扫描覆盖 300237、600936、603003、603196、300365。
+
+evidence-state validator 现在逐行按审核事实重推 `review_expected_parser_flag`，并拒绝目标年内/外事件事实矛盾或事实与标签不一致。冻结 event/row/evidence-state GT 只读；R3G v3 PASS 与固定 14 行分母不变。
+
+已加入 Full 安全前置检查：完整 23,448 行基线、精确 manifest 子集、非空原因、无重复/越界键、manifest fingerprint，以及成功缓存旧 parser revision 时普通宽范围 resume 硬阻断。对现有本地 Full 状态作只读预检，确认 23,448/23,448 键完整，普通宽范围 resume 被拦截，检测到 22,751 条旧 revision 成功缓存。定向写回只替换 manifest 键，记录目标行前后指纹并验证非目标行指纹完全不变。此轮只实现和测试安全逻辑，不执行 Full、定向抓取或网络请求；实体范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`，zero/missing semantics 仍 pending。

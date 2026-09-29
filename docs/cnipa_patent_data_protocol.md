@@ -50,6 +50,14 @@ R2 先完成 92 家/461 firm-year 的固定 Pilot，再从既有 CNINFO 年报�
 
 R3G 仍用 R3F 原 parser 输出重算固定 14 行，不删除候选退出行。历史发生准确率为诊断指标；正式 Gate 使用 `parser_evidence_state_accuracy`，要求 14/14；年末名称、事件旧名、新名、日期和日期精度准确率也均须为 1.0，且所有独立审核完成。summary schema 升为 `cnipa_strict_pilot_gate_v3`，绑定新的 evidence-state ground-truth fingerprint 以及原 event/row GT fingerprints。v1、legacy、旧 v2 summary 和 `--pilot-pass` 单独均不能授权 Full。R3G 的固定 Pilot Gate 为 `STRICT_PILOT_GATE_PASS`；这只覆盖固定 Pilot，不代表 Full 23,448 行或 CNIPA 专利采集已执行。整体范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`，详见 `docs/cnipa_entity_name_audit.md`。
 
+## 4.4A-R3G-K Runner 与定向 Full 安全边界
+
+唯一 CNINFO 名称恢复实现为 `scripts/run_cninfo_legal_name_recovery_20260929.py`；`scripts/run_cninfo_legal_name_recovery_20260927.py` 仅保留兼容命令行委托，不包含独立授权、缓存或 Full 流程。内部测试与实现导入统一指向 canonical 文件。
+
+证据状态 GT validator 会从三项审核事实重新推导预期标签：目标年内已验证发行人更名为 YES；否则明确未更名披露或具备充分时间顺序依据的目标年外更名为 NO；其余为 UNKNOWN。目标年内/外事实同时为 YES，或推导值与人工标签不一致时，Gate 无效。`verified_change_event_outside_target_year=YES` 本身即声明事件与法人名称轨迹足以确定目标年状态。
+
+当完整 Full 状态和 23,448 键集合已完成，但成功缓存仍是旧 parser revision 时，普通 `--resume` 会硬性阻止宽范围重解析。对现有缓存的只读预检检测到 22,751 条旧 revision 成功记录，因此当前普通宽范围 resume 会被阻断。定向操作必须提供 `--targeted-refresh-manifest`（`firm_key,year,reason`），并通过精确目标子集、唯一键、非空原因和原 23,448 行基线校验。定向写回只替换 manifest 键，输出目标行前后哈希，并要求非目标行指纹完全相同；该机制仅为后续授权运行准备，本轮不运行任何 refresh。
+
 ## Local parser output
 
 `read_cnipa_export` 支持 XLSX 和 XML，并标准化为：

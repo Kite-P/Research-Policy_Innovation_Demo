@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scripts.run_cninfo_legal_name_recovery_20260927 import (
+from scripts.run_cninfo_legal_name_recovery_20260929 import (
     _build_pilot_change_candidate_rows,
     _build_v2_strict_pilot_summary,
     _coverage_status,
@@ -22,6 +22,261 @@ from src.cnipa_annual_report_names import (
     validate_pdf_payload,
 )
 from src.historical_province_sources import CNINFOAnnualReportClient
+
+
+def test_legacy_runner_main_delegates_to_canonical(monkeypatch):
+    import scripts.run_cninfo_legal_name_recovery_20260927 as legacy
+    import scripts.run_cninfo_legal_name_recovery_20260929 as canonical
+
+    called = []
+    monkeypatch.setattr(canonical, "main", lambda: called.append("canonical") or 7)
+
+    assert legacy.main() == 7
+    assert called == ["canonical"]
+
+
+def test_legacy_runner_cli_imports_canonical_from_script_path():
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    result = subprocess.run(
+        [sys.executable, "scripts/run_cninfo_legal_name_recovery_20260927.py", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=Path(__file__).resolve().parents[1],
+    )
+    assert result.returncode == 0
+    assert "--targeted-refresh-manifest" in result.stdout
+
+
+def test_evidence_state_validator_rederives_expected_flag_from_facts():
+    import pandas as pd
+
+    from scripts.run_cninfo_legal_name_recovery_20260929 import (
+        EVIDENCE_STATE_GT_COLUMNS,
+        _validate_evidence_state_ground_truth,
+    )
+
+    valid = {
+        "firm_key": "SSE:600001:2000-01-01",
+        "year": 2024,
+        "historical_change_occurrence": "YES",
+        "historical_event_id": "event-1",
+        "review_expected_parser_flag": "YES",
+        "evidence_basis": "annual report",
+        "evidence_tier": "H1",
+        "reviewer_evidence_url": "https://official.test/report.pdf",
+        "reviewer_evidence_title": "annual report",
+        "reviewer_evidence_excerpt": "name changed",
+        "explicit_no_change_disclosure": "NO",
+        "verified_change_event_in_target_year": "YES",
+        "verified_change_event_outside_target_year": "NO",
+        "review_status": "PASS",
+        "review_notes": "verified",
+    }
+    assert _validate_evidence_state_ground_truth(
+        pd.DataFrame([valid], columns=EVIDENCE_STATE_GT_COLUMNS)
+    )["valid"]
+
+    contradictory = dict(valid, review_expected_parser_flag="UNKNOWN")
+    result = _validate_evidence_state_ground_truth(
+        pd.DataFrame([contradictory], columns=EVIDENCE_STATE_GT_COLUMNS)
+    )
+    assert not result["valid"]
+
+    unsupported_no = dict(
+        valid,
+        review_expected_parser_flag="NO",
+        historical_change_occurrence="NO",
+        historical_event_id="",
+        verified_change_event_in_target_year="NO",
+    )
+    assert not _validate_evidence_state_ground_truth(
+        pd.DataFrame([unsupported_no], columns=EVIDENCE_STATE_GT_COLUMNS)
+    )["valid"]
+
+    outside_year_no = dict(
+        unsupported_no,
+        verified_change_event_outside_target_year="YES",
+    )
+    assert _validate_evidence_state_ground_truth(
+        pd.DataFrame([outside_year_no], columns=EVIDENCE_STATE_GT_COLUMNS)
+    )["valid"]
+
+    silence = dict(
+        valid,
+        historical_change_occurrence="UNRESOLVED",
+        historical_event_id="",
+        review_expected_parser_flag="UNKNOWN",
+        verified_change_event_in_target_year="NO",
+    )
+    assert _validate_evidence_state_ground_truth(
+        pd.DataFrame([silence], columns=EVIDENCE_STATE_GT_COLUMNS)
+    )["valid"]
+
+    contradictory_facts = dict(
+        valid, verified_change_event_outside_target_year="YES"
+    )
+    assert not _validate_evidence_state_ground_truth(
+        pd.DataFrame([contradictory_facts], columns=EVIDENCE_STATE_GT_COLUMNS)
+    )["valid"]
+
+
+def test_targeted_manifest_rejects_duplicate_and_out_of_universe_keys(tmp_path, monkeypatch):
+    import pandas as pd
+    import pytest
+
+    from scripts import run_cninfo_legal_name_recovery_20260929 as recovery
+
+    monkeypatch.setattr(recovery, "FULL_TARGET_FIRM_YEARS", 2)
+    expected = {("F1", 2020), ("F2", 2021)}
+    path = tmp_path / "targets.csv"
+    pd.DataFrame(
+        [{"firm_key": "F1", "year": 2020, "reason": "stale parser"}]
+    ).to_csv(path, index=False)
+    manifest, pairs, fingerprint = recovery._load_targeted_refresh_manifest(path, expected)
+    assert pairs == {("F1", 2020)}
+    assert len(fingerprint) == 64
+    assert len(manifest) == 1
+
+    pd.DataFrame(
+        [
+            {"firm_key": "F1", "year": 2020, "reason": "first"},
+            {"firm_key": "F1", "year": 2020, "reason": "duplicate"},
+        ]
+    ).to_csv(path, index=False)
+    with pytest.raises(ValueError, match="DUPLICATE_KEYS"):
+        recovery._load_targeted_refresh_manifest(path, expected)
+
+    pd.DataFrame(
+        [{"firm_key": "OUTSIDE", "year": 2020, "reason": "invalid"}]
+    ).to_csv(path, index=False)
+    with pytest.raises(ValueError, match="OUT_OF_TARGET_KEYS"):
+        recovery._load_targeted_refresh_manifest(path, expected)
+
+
+def test_targeted_refresh_replaces_only_manifest_rows(tmp_path, monkeypatch):
+    import pandas as pd
+
+    from scripts import run_cninfo_legal_name_recovery_20260929 as recovery
+
+    monkeypatch.setattr(recovery, "FULL_TARGET_FIRM_YEARS", 2)
+    expected = {("F1", 2020), ("F2", 2021)}
+    baseline = pd.DataFrame(
+        [
+            {"firm_key": "F1", "year": 2020, "status": "PENDING", "detail": "old"},
+            {"firm_key": "F2", "year": 2021, "status": "COMPLETE_NO_CHANGE", "detail": "keep"},
+        ]
+    )
+    replacements = pd.DataFrame(
+        [{"firm_key": "F1", "year": 2020, "status": "PENDING", "detail": "new"}]
+    )
+    result, fingerprints = recovery._replace_targeted_full_rows(
+        baseline, replacements, {("F1", 2020)}, expected
+    )
+    assert len(result) == 2
+    assert result.loc[result.firm_key.eq("F1"), "detail"].item() == "new"
+    assert result.loc[result.firm_key.eq("F2"), "detail"].item() == "keep"
+    assert fingerprints["non_target_before_sha256"] == fingerprints["non_target_after_sha256"]
+    assert fingerprints["target_before_sha256"] != fingerprints["target_after_sha256"]
+
+
+def test_targeted_refresh_baseline_must_match_exact_declared_full_size(tmp_path, monkeypatch):
+    import pandas as pd
+    import pytest
+
+    from scripts import run_cninfo_legal_name_recovery_20260929 as recovery
+
+    monkeypatch.setattr(recovery, "FULL_TARGET_FIRM_YEARS", 2)
+    baseline = pd.DataFrame(
+        [{"firm_key": "F1", "year": 2020, "status": "PENDING"}]
+    )
+    with pytest.raises(ValueError, match="BASELINE_ROW_COUNT_MISMATCH"):
+        recovery._validate_full_baseline(baseline, {("F1", 2020), ("F2", 2021)})
+
+
+def test_targeted_resume_ignores_stale_cache_rows_outside_manifest(tmp_path):
+    import json
+
+    from scripts.run_cninfo_legal_name_recovery_20260929 import _load_status_cache
+
+    target = ("F1", 2020)
+    outside = ("F2", 2021)
+    (tmp_path / "target.json").write_text(
+        json.dumps(
+            {
+                "firm_key": target[0],
+                "year": target[1],
+                "status": "PENDING",
+                "parser_revision": "issuer_scope_v2",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "outside-stale.json").write_text(
+        json.dumps(
+            {
+                "firm_key": outside[0],
+                "year": outside[1],
+                "status": "PENDING",
+                "parser_revision": "old_revision",
+            }
+        ),
+        encoding="utf-8",
+    )
+    loaded = _load_status_cache(tmp_path, {target})
+    assert set(loaded) == {target}
+    assert outside not in loaded
+
+
+def test_complete_full_resume_with_stale_success_cache_is_hard_blocked(tmp_path, monkeypatch):
+    import json
+
+    import pandas as pd
+    import pytest
+
+    from scripts import run_cninfo_legal_name_recovery_20260929 as recovery
+
+    monkeypatch.setattr(recovery, "FULL_TARGET_FIRM_YEARS", 2)
+    expected = {("F1", 2020), ("F2", 2021)}
+    status_path = tmp_path / "full_status.csv"
+    state_path = tmp_path / "full_run_state.json"
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    pd.DataFrame(
+        [
+            {"firm_key": "F1", "year": 2020, "status": "PENDING"},
+            {"firm_key": "F2", "year": 2021, "status": "REPORT_NOT_FOUND"},
+        ]
+    ).to_csv(status_path, index=False)
+    state_path.write_text(
+        json.dumps(
+            {
+                "stage": "full",
+                "status": "COMPLETE",
+                "status_key_set_exact": True,
+                "target_firm_years": 2,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (cache_dir / "stale.json").write_text(
+        json.dumps(
+            {
+                "firm_key": "F1",
+                "year": 2020,
+                "status": "PENDING",
+                "parser_revision": "old_revision",
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="FULL_WIDE_REPARSE_BLOCKED"):
+        recovery._guard_full_resume_against_wide_stale_reparse(
+            status_path, state_path, cache_dir, expected
+        )
 
 
 def _event_row(**overrides):
@@ -335,9 +590,9 @@ def test_name_parser_has_no_pilot_issuer_specific_code_branches():
     from pathlib import Path
 
     parser = Path("src/cnipa_annual_report_names.py").read_text(encoding="utf-8")
-    runner = Path("scripts/run_cninfo_legal_name_recovery_20260927.py").read_text(encoding="utf-8")
+    runner = Path("scripts/run_cninfo_legal_name_recovery_20260929.py").read_text(encoding="utf-8")
 
-    for stock_code in ("300237", "600936", "603003", "603196"):
+    for stock_code in ("300237", "600936", "603003", "603196", "300365"):
         assert stock_code not in parser
         assert stock_code not in runner
 
@@ -347,7 +602,7 @@ def test_finalize_pilot_does_not_promote_unreconciled_legacy_summary(tmp_path, m
 
     import pandas as pd
 
-    import scripts.run_cninfo_legal_name_recovery_20260927 as recovery_script
+    import scripts.run_cninfo_legal_name_recovery_20260929 as recovery_script
 
     monkeypatch.setattr(recovery_script, "OUTPUT", tmp_path)
     sample = pd.DataFrame([{"firm_key": "SSE:600001:2000-01-01"}])
@@ -938,7 +1193,7 @@ def test_candidate_builder_includes_union_of_change_signals_and_adjacent_names()
 def test_frozen_row_predictions_keep_rows_removed_from_candidate_builder():
     import pandas as pd
 
-    from scripts.run_cninfo_legal_name_recovery_20260927 import (
+    from scripts.run_cninfo_legal_name_recovery_20260929 import (
         _build_frozen_row_predictions,
     )
 
@@ -985,7 +1240,7 @@ def test_frozen_row_predictions_keep_rows_removed_from_candidate_builder():
 def test_fixed_evaluation_scope_prevents_unreviewed_adjacent_rows_from_creating_candidates():
     import pandas as pd
 
-    from scripts.run_cninfo_legal_name_recovery_20260927 import (
+    from scripts.run_cninfo_legal_name_recovery_20260929 import (
         _build_pilot_change_candidate_rows,
     )
 
@@ -1202,7 +1457,7 @@ def test_ground_truth_templates_are_pending_blank_and_protected(tmp_path):
     import pandas as pd
     import pytest
 
-    from scripts.run_cninfo_legal_name_recovery_20260927 import (
+    from scripts.run_cninfo_legal_name_recovery_20260929 import (
         _prepare_pilot_ground_truth_review,
     )
 
@@ -1231,7 +1486,7 @@ def test_ground_truth_templates_are_pending_blank_and_protected(tmp_path):
 def test_parser_predictions_contain_no_automatic_review_fields():
     import pandas as pd
 
-    from scripts.run_cninfo_legal_name_recovery_20260927 import (
+    from scripts.run_cninfo_legal_name_recovery_20260929 import (
         _build_pilot_change_artifacts,
     )
 
@@ -1268,7 +1523,7 @@ def test_parser_predictions_contain_no_automatic_review_fields():
 def test_v2_metrics_compare_predictions_only_to_separate_ground_truth():
     import pandas as pd
 
-    from scripts.run_cninfo_legal_name_recovery_20260927 import (
+    from scripts.run_cninfo_legal_name_recovery_20260929 import (
         _build_v2_strict_pilot_summary,
     )
 
@@ -1482,7 +1737,7 @@ def test_v2_metrics_compare_predictions_only_to_separate_ground_truth():
 def test_v2_gate_rejects_pending_or_evidenceless_ground_truth():
     import pandas as pd
 
-    from scripts.run_cninfo_legal_name_recovery_20260927 import (
+    from scripts.run_cninfo_legal_name_recovery_20260929 import (
         _review_is_complete,
     )
 
@@ -1509,7 +1764,7 @@ def test_v2_gate_rejects_pending_or_evidenceless_ground_truth():
 def test_finalizing_predictions_never_overwrites_existing_ground_truth(tmp_path, monkeypatch):
     import pandas as pd
 
-    import scripts.run_cninfo_legal_name_recovery_20260927 as recovery
+    import scripts.run_cninfo_legal_name_recovery_20260929 as recovery
 
     audit = pd.DataFrame([_event_row()])
     audit["legal_name_current_in_report"] = "乙股份有限公司"
@@ -1545,6 +1800,32 @@ def test_finalizing_predictions_never_overwrites_existing_ground_truth(tmp_path,
     targets.to_csv(tmp_path / "pilot_firm_year_targets.csv", index=False)
     audit.to_csv(tmp_path / "pilot_context_audit.csv", index=False)
     statuses.to_csv(tmp_path / "pilot_status.csv", index=False)
+    evidence_state = pd.DataFrame(
+        [
+            {
+                "firm_key": str(row_gt.loc[0, "firm_key"]),
+                "year": int(row_gt.loc[0, "year"]),
+                "historical_change_occurrence": "UNRESOLVED",
+                "historical_event_id": "",
+                "review_expected_parser_flag": "YES",
+                "evidence_basis": "synthetic test fixture",
+                "evidence_tier": "H1",
+                "reviewer_evidence_url": "https://official.test/evidence.pdf",
+                "reviewer_evidence_title": "synthetic evidence",
+                "reviewer_evidence_excerpt": "synthetic excerpt",
+                "explicit_no_change_disclosure": "NO",
+                "verified_change_event_in_target_year": "YES",
+                "verified_change_event_outside_target_year": "NO",
+                "review_status": "PASS",
+                "review_notes": "synthetic validator fixture",
+            }
+        ]
+    )
+    evidence_state.to_csv(
+        tmp_path / "pilot_change_evidence_state_ground_truth.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
     monkeypatch.setattr(recovery, "OUTPUT", tmp_path)
     recovery._finalize_pilot_change_events()
     event_after = pd.read_csv(event_path, dtype=str, keep_default_na=False)
@@ -1557,7 +1838,7 @@ def test_pilot_pass_flag_alone_cannot_authorize_full(tmp_path, monkeypatch):
     import pandas as pd
     import pytest
 
-    import scripts.run_cninfo_legal_name_recovery_20260927 as recovery
+    import scripts.run_cninfo_legal_name_recovery_20260929 as recovery
 
     targets = pd.DataFrame(
         [{"firm_key": f"F{i}", "year": year} for i in range(92) for year in range(2020, 2025)]
@@ -1624,7 +1905,7 @@ def test_h2_completed_name_change_without_effective_day_uses_year_precision():
 def test_h2_short_text_pdf_is_audited_and_next_notice_is_checked(tmp_path, monkeypatch):
     import pandas as pd
 
-    import scripts.run_cninfo_legal_name_recovery_20260927 as recovery_script
+    import scripts.run_cninfo_legal_name_recovery_20260929 as recovery_script
 
     monkeypatch.setattr(recovery_script, "OUTPUT", tmp_path)
 
