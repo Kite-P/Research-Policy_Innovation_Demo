@@ -60,13 +60,19 @@ def _label_value_with_evidence(
     for i, raw in enumerate(lines):
         line = raw.strip()
         for label in labels:
-            pos = line.find(label)
-            if pos < 0:
+            # Treat labels as fields, not substrings in glossary prose such as
+            # “股份改制前公司名称” or branch/subsidiary definitions.
+            match = re.match(
+                rf"^(?:[|｜]\s*)?{re.escape(label)}(?:\s*[:：|｜]\s*|\s+|$)",
+                line,
+            )
+            if not match:
                 continue
-            remainder = line[pos + len(label) :]
-            # A short-name label must not match the contained legal-name label.
-            if any(short in line[:pos] for short in _SHORT_LABELS):
+            if label in _SHORT_LABELS or any(
+                line.startswith(short) and label != short for short in _SHORT_LABELS
+            ):
                 continue
+            remainder = line[match.end() :]
             found = _legal_value(remainder)
             if found:
                 return found, label, " | ".join(lines[i : i + 2])[:1000]
@@ -132,7 +138,28 @@ def extract_annual_report_legal_name_evidence(
         return result
 
     lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
-    legal, legal_label, legal_context = _label_value_with_evidence(lines, _LEGAL_LABELS)
+    issuer_info_start = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if re.fullmatch(r"(?:第二节\s+公司简介和主要财务指标|公司基本情况)", line)
+        ),
+        -1,
+    )
+    issuer_info_lines = lines
+    if issuer_info_start >= 0:
+        issuer_info_end = next(
+            (
+                index
+                for index in range(issuer_info_start + 1, len(lines))
+                if re.match(r"\s*第[三四五六七八九十]+节", lines[index])
+            ),
+            len(lines),
+        )
+        issuer_info_lines = lines[issuer_info_start:issuer_info_end]
+    legal, legal_label, legal_context = _label_value_with_evidence(issuer_info_lines, _LEGAL_LABELS)
+    if not legal and issuer_info_lines is not lines:
+        legal, legal_label, legal_context = _label_value_with_evidence(lines, _LEGAL_LABELS)
     if legal:
         result["legal_name_current_in_report"] = legal
         result["legal_name_at_year_end"] = legal
@@ -147,20 +174,39 @@ def extract_annual_report_legal_name_evidence(
         "公司名称是否变更",
         "报告期内公司名称变更情况",
     )
-    change_line = next(
-        (line for line in lines[:350] if any(label in line for label in flag_labels)),
-        "",
-    )
-    if change_line:
-        flag_label = next(label for label in flag_labels if label in change_line)
-        value = change_line.split(flag_label, maxsplit=1)[-1]
-        if not value.strip():
-            line_index = lines.index(change_line)
-            value = " ".join(lines[line_index + 1 : line_index + 3])
-        if re.search(r"否|未变更|无变更|未发生", value):
+    flag_scope = issuer_info_lines if issuer_info_start >= 0 else lines
+    for index, line in enumerate(flag_scope):
+        flag_label = next(
+            (
+                label
+                for label in flag_labels
+                if re.match(rf"^{re.escape(label)}(?:\s*[:：|｜]\s*|\s+|$)", line)
+            ),
+            "",
+        )
+        if not flag_label:
+            continue
+        match = re.match(rf"^{re.escape(flag_label)}\s*[:：|｜]?\s*(.*)$", line)
+        value_parts = [match.group(1)] if match else []
+        if not "".join(value_parts).strip():
+            for next_line in flag_scope[index + 1 : index + 7]:
+                if not next_line.strip():
+                    continue
+                if _FIELD_LABEL.search(next_line) or re.match(
+                    r"(?:第[一二三四五六七八九十]+节|[一二三四五六七八九十]+[、.．])", next_line
+                ):
+                    break
+                value_parts.append(next_line)
+                if re.search(
+                    r"(?:^|[\s|｜])(?:否|是|未变更|无变更|有变更)(?:$|[\s|｜])", next_line
+                ):
+                    break
+        value = " ".join(value_parts)
+        if re.search(r"(?:^|[\s|｜])(?:否|未变更|无变更|未发生)(?:$|[\s|｜])", value):
             result["company_name_change_flag"] = "NO"
-        elif re.search(r"是|有变更|发生变更", value):
+        elif re.search(r"(?:^|[\s|｜])(?:是|有变更|发生变更)(?:$|[\s|｜])", value):
             result["company_name_change_flag"] = "YES"
+        break
 
     change_section_start = next(
         (

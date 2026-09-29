@@ -476,6 +476,55 @@ def test_bare_chinese_name_label_in_subsidiary_text_is_not_issuer_legal_name():
     assert result["legal_name_current_in_report"] == ""
 
 
+def test_official_company_information_section_outweighs_glossary_and_branch_name():
+    text = """
+2021年年度报告全文
+释义
+北辰科技 指 北辰新材科技发展有限公司，股份改制前公司名称
+海滨分公司 指 北辰新材科技股份有限公司海滨分公司
+第二节 公司简介和主要财务指标
+一、公司信息
+公司的中文名称 北辰新材科技股份有限公司
+"""
+    result = extract_annual_report_legal_name_evidence(
+        text, expected_year=2021, source_report_title="2021年年度报告全文"
+    )
+    assert result["legal_name_current_in_report"] == "北辰新材科技股份有限公司"
+    assert "公司的中文名称 北辰新材科技股份有限公司" in result["evidence_context"]
+
+
+def test_no_explicit_issuer_name_change_disclosure_remains_unknown():
+    text = """
+2021年年度报告全文
+释义
+海滨分公司 指 北辰新材科技股份有限公司海滨分公司
+第二节 公司简介和主要财务指标
+一、公司信息
+公司的中文名称 北辰新材科技股份有限公司
+公司注册地址历史变更情况 本报告期未发生注册地址变更
+"""
+    result = extract_annual_report_legal_name_evidence(
+        text, expected_year=2021, source_report_title="2021年年度报告全文"
+    )
+    assert result["company_name_change_flag"] == "UNKNOWN"
+
+
+def test_explicit_split_issuer_name_change_field_skips_blank_layout_lines():
+    text = """
+2024年年度报告
+第二节 公司简介和主要财务指标
+一、公司信息
+公司的中文名称 华东材料科技股份有限公司
+公司名称在报告期内是否变更
+
+    否
+"""
+    result = extract_annual_report_legal_name_evidence(
+        text, expected_year=2024, source_report_title="2024年年度报告全文"
+    )
+    assert result["company_name_change_flag"] == "NO"
+
+
 def test_extracts_old_and_new_full_legal_names_with_exact_effective_date():
     text = """
 2023年年度报告全文
@@ -653,8 +702,18 @@ def test_status_manifest_must_equal_target_firm_year_set():
 def test_resume_reuses_completed_and_pending_records_without_retrieval(tmp_path):
     import json
 
-    completed = {"firm_key": "firm-a", "year": 2020, "status": "COMPLETE_NO_CHANGE"}
-    pending = {"firm_key": "firm-a", "year": 2021, "status": "PENDING"}
+    completed = {
+        "firm_key": "firm-a",
+        "year": 2020,
+        "status": "COMPLETE_NO_CHANGE",
+        "parser_revision": "issuer_scope_v2",
+    }
+    pending = {
+        "firm_key": "firm-a",
+        "year": 2021,
+        "status": "PENDING",
+        "parser_revision": "issuer_scope_v2",
+    }
     for index, record in enumerate((completed, pending)):
         (tmp_path / f"{index}.json").write_text(json.dumps(record), encoding="utf-8")
     target = {("firm-a", 2020), ("firm-a", 2021)}
@@ -690,6 +749,19 @@ def test_source_blocked_and_retryable_failures_are_explicit_statuses(tmp_path):
     assert _coverage_status(rows[0]) == "SOURCE_BLOCKED"
     assert _coverage_status(rows[1]) == "REPORT_FETCH_FAILED"
     assert _coverage_status(rows[2]) == "REPORT_NOT_FOUND"
+
+
+def test_resume_does_not_reuse_successful_records_from_an_old_parser_revision(tmp_path):
+    import json
+
+    stale = {
+        "firm_key": "firm-a",
+        "year": 2021,
+        "status": "PENDING",
+        "legal_name_current_in_report": "旧解析结果股份有限公司",
+    }
+    (tmp_path / "stale.json").write_text(json.dumps(stale), encoding="utf-8")
+    assert _load_status_cache(tmp_path, {("firm-a", 2021)}) == {}
 
 
 def test_pilot_sample_is_deterministic_unique_and_stratified():
@@ -861,6 +933,94 @@ def test_candidate_builder_includes_union_of_change_signals_and_adjacent_names()
         ("SSE:600001:2000-01-01", 2024),
     ]
     assert candidates.source_report_url.str.startswith("https://").all()
+
+
+def test_frozen_row_predictions_keep_rows_removed_from_candidate_builder():
+    import pandas as pd
+
+    from scripts.run_cninfo_legal_name_recovery_20260927 import (
+        _build_frozen_row_predictions,
+    )
+
+    firm_key = "SZSE:TEST:2014-01-23"
+    audit = pd.DataFrame(
+        [
+            {
+                "firm_key": firm_key,
+                "year": 2020,
+                "legal_name_current_in_report": "华北示例科技股份有限公司",
+                "legal_name_at_year_end": "华北示例科技股份有限公司",
+                "company_name_change_flag": "UNKNOWN",
+            },
+            {
+                "firm_key": firm_key,
+                "year": 2021,
+                "legal_name_current_in_report": "华北示例科技股份有限公司",
+                "legal_name_at_year_end": "华北示例科技股份有限公司",
+                "company_name_change_flag": "UNKNOWN",
+            },
+        ]
+    )
+    candidate_rows = pd.DataFrame(
+        [
+            {
+                "firm_key": firm_key,
+                "year": 2020,
+                "parser_change_flag": "UNKNOWN",
+                "parser_legal_name_at_year_end": "华北示例科技股份有限公司",
+                "candidate_reason": "adjacent_year_name_difference",
+            }
+        ]
+    )
+    frozen_gt = pd.DataFrame(
+        [{"firm_key": firm_key, "year": "2020"}, {"firm_key": firm_key, "year": "2021"}]
+    )
+    predictions = _build_frozen_row_predictions(audit, candidate_rows, frozen_gt)
+    assert set(predictions.year.astype(str)) == {"2020", "2021"}
+    removed_candidate = predictions.loc[predictions.year.astype(str).eq("2021")].iloc[0]
+    assert removed_candidate.parser_legal_name_at_year_end == "华北示例科技股份有限公司"
+    assert removed_candidate.candidate_reason == ""
+
+
+def test_fixed_evaluation_scope_prevents_unreviewed_adjacent_rows_from_creating_candidates():
+    import pandas as pd
+
+    from scripts.run_cninfo_legal_name_recovery_20260927 import (
+        _build_pilot_change_candidate_rows,
+    )
+
+    firm_key = "SSE:TEST:2010-01-01"
+    audit = pd.DataFrame(
+        [
+            {
+                "firm_key": firm_key,
+                "year": 2020,
+                "company_name_change_flag": "UNKNOWN",
+                "legal_name_current_in_report": "示例能源股份有限公司",
+                "legal_name_at_year_end": "示例能源股份有限公司",
+            },
+            {
+                "firm_key": firm_key,
+                "year": 2021,
+                "company_name_change_flag": "UNKNOWN",
+                "legal_name_current_in_report": "示例能源股份有限公司",
+                "legal_name_at_year_end": "示例能源股份有限公司",
+            },
+            {
+                "firm_key": firm_key,
+                "year": 2022,
+                "company_name_change_flag": "UNKNOWN",
+                "legal_name_current_in_report": "分公司释义示例能源股份有限公司",
+                "legal_name_at_year_end": "分公司释义示例能源股份有限公司",
+            },
+        ]
+    )
+    candidates = _build_pilot_change_candidate_rows(
+        audit,
+        pd.DataFrame(columns=["firm_key", "year", "source_url"]),
+        {(firm_key, 2020), (firm_key, 2021)},
+    )
+    assert candidates.empty
 
 
 def test_v2_gate_requires_complete_independent_event_and_row_reviews():
@@ -1154,6 +1314,16 @@ def test_v2_metrics_compare_predictions_only_to_separate_ground_truth():
             }
         ]
     )
+    rows.loc[len(rows)] = {
+        "firm_key": "SSE:1:2000-01-01",
+        "year": 2023,
+        "candidate_reason": "",
+        "proposed_event_id": "",
+        "parser_change_flag": "NO",
+        "parser_legal_name_at_year_end": "甲股份有限公司",
+        "parser_previous_name": "",
+        "parser_new_name": "",
+    }
     event_gt = pd.DataFrame(
         [
             {
@@ -1179,12 +1349,12 @@ def test_v2_metrics_compare_predictions_only_to_separate_ground_truth():
             {
                 "firm_key": "SSE:1:2000-01-01",
                 "year": "2024",
-                "candidate_reason": "parser_old_new_name_pair",
-                "proposed_event_id": "EVT-1",
-                "parser_change_flag": "YES",
-                "parser_legal_name_at_year_end": "乙股份有限公司",
-                "parser_previous_name": "甲股份有限公司",
-                "parser_new_name": "乙股份有限公司",
+                "candidate_reason": "stale frozen parser snapshot",
+                "proposed_event_id": "stale-event-id",
+                "parser_change_flag": "UNKNOWN",
+                "parser_legal_name_at_year_end": "stale parser name",
+                "parser_previous_name": "stale old name",
+                "parser_new_name": "stale new name",
                 "review_event_id": "EVT-1",
                 "review_is_change_related": "YES",
                 "review_change_flag": "YES",
@@ -1196,13 +1366,36 @@ def test_v2_metrics_compare_predictions_only_to_separate_ground_truth():
                 "reviewer_evidence_url": "https://official.test/r.pdf",
                 "reviewer_evidence_title": "年报",
                 "reviewer_evidence_excerpt": "公司中文名称",
-            }
+            },
+            {
+                "firm_key": "SSE:1:2000-01-01",
+                "year": "2023",
+                "candidate_reason": "stale frozen parser snapshot",
+                "proposed_event_id": "",
+                "parser_change_flag": "UNKNOWN",
+                "parser_legal_name_at_year_end": "stale parser name",
+                "parser_previous_name": "",
+                "parser_new_name": "",
+                "review_event_id": "",
+                "review_is_change_related": "NO",
+                "review_change_flag": "NO",
+                "review_legal_name_at_year_end": "甲股份有限公司",
+                "review_previous_name": "",
+                "review_new_name": "",
+                "exclusion_reason": "NOT_A_LEGAL_NAME_CHANGE_EVENT:stable name",
+                "review_status": "PASS",
+                "reviewer_evidence_url": "https://official.test/r-2023.pdf",
+                "reviewer_evidence_title": "年报",
+                "reviewer_evidence_excerpt": "公司中文名称",
+            },
         ]
     )
     summary = _build_v2_strict_pilot_summary(
         sample, targets, audit, candidates, events, rows, event_gt, row_gt
     )
     assert summary["pilot_gate_pass"] is True
+    assert summary["row_evaluation_denominator"] == 2
+    assert summary["metrics"]["firm_year_accuracy_denominator"] == 2
     wrong = event_gt.assign(review_previous_legal_name="错误旧名称")
     summary = _build_v2_strict_pilot_summary(
         sample, targets, audit, candidates, events, rows, wrong, row_gt
@@ -1235,7 +1428,7 @@ def test_v2_metrics_compare_predictions_only_to_separate_ground_truth():
         _build_v2_strict_pilot_summary(
             sample, targets, audit, candidates, events, rows, event_gt, wrong_flag
         )["metrics"]["firm_year_change_flag_accuracy"]
-        == 0
+        == 0.5
     )
     assert not _build_v2_strict_pilot_summary(
         sample,

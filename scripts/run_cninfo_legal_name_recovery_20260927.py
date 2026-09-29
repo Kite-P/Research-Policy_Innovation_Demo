@@ -34,6 +34,7 @@ MANIFEST = ROOT / "results/real_financial_full/target_manifest.csv"
 SOURCE_CACHE = ROOT / "results/historical_province/cache"
 OUTPUT = ROOT / "results/cnipa_legal_name_recovery"
 SEED = "20260927"
+PARSER_REVISION = "issuer_scope_v2"
 STATUSES = {
     "PENDING",
     "COMPLETE_NO_CHANGE",
@@ -130,10 +131,17 @@ def _strict_pilot_authorized_v2(
         and candidates.firm_key.astype(str).str.cat(candidates.year.astype(str), sep="|").is_unique
         and events.event_id.ne("").all()
         and events.event_id.is_unique
-        and len(rows) == len(candidates)
         and rows.firm_key.astype(str).str.cat(rows.year.astype(str), sep="|").is_unique
-        and set(candidates.firm_key.astype(str).str.cat(candidates.year.astype(str), sep="|"))
-        == set(rows.firm_key.astype(str).str.cat(rows.year.astype(str), sep="|"))
+        and set(
+            candidates.firm_key.astype(str).str.cat(candidates.year.astype(str), sep="|")
+        ).issubset(set(rows.firm_key.astype(str).str.cat(rows.year.astype(str), sep="|")))
+        and int(summary.get("row_evaluation_denominator", -1)) == len(row_ground_truth)
+        and set(rows.firm_key.astype(str).str.cat(rows.year.astype(str), sep="|"))
+        == set(
+            row_ground_truth.firm_key.astype(str).str.cat(
+                row_ground_truth.year.astype(str), sep="|"
+            )
+        )
         and set(rows.loc[rows.proposed_event_id.ne(""), "proposed_event_id"]).issubset(
             set(events.event_id)
         )
@@ -163,6 +171,7 @@ def _strict_pilot_authorized_v2(
 def _build_pilot_change_candidate_rows(
     audit: pd.DataFrame,
     statuses: pd.DataFrame,
+    evaluation_keys: set[tuple[str, int]] | None = None,
 ) -> pd.DataFrame:
     """Create the complete, deterministic candidate union from the frozen Pilot."""
     frame = audit.copy().fillna("")
@@ -179,6 +188,11 @@ def _build_pilot_change_candidate_rows(
         frame["source_report_url"] = frame.pop("source_url").fillna("")
     else:
         frame["source_report_url"] = ""
+    if evaluation_keys is not None:
+        normalized_keys = {(str(firm_key), int(year)) for firm_key, year in evaluation_keys}
+        frame = frame.loc[
+            frame.apply(lambda row: (str(row.firm_key), int(row.year)) in normalized_keys, axis=1)
+        ].copy()
     frame["adjacent_year_name_change"] = False
     for _, group in frame.groupby("firm_key", sort=False):
         ordered = group.sort_values("year", kind="stable")
@@ -237,8 +251,9 @@ def _build_pilot_change_candidate_rows(
 def _build_pilot_change_artifacts(
     audit: pd.DataFrame,
     statuses: pd.DataFrame,
+    evaluation_keys: set[tuple[str, int]] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    candidates = _build_pilot_change_candidate_rows(audit, statuses)
+    candidates = _build_pilot_change_candidate_rows(audit, statuses, evaluation_keys)
     identity_rows = candidates.copy()
     # The annual-report URL is H1 evidence when the parser recovered a dated
     # old/new pair but the row did not separately persist an announcement URL.
@@ -369,6 +384,69 @@ def _build_pilot_change_artifacts(
         ],
     ]
     return candidates, events, rows
+
+
+def _build_frozen_row_predictions(
+    audit: pd.DataFrame,
+    candidate_rows: pd.DataFrame,
+    row_ground_truth: pd.DataFrame,
+) -> pd.DataFrame:
+    """Build predictions for every frozen evaluation key, not only candidates."""
+    key_columns = ["firm_key", "year"]
+    required = set(key_columns).issubset(row_ground_truth.columns)
+    if not required or row_ground_truth.duplicated(key_columns).any():
+        raise ValueError("INVALID_FROZEN_ROW_EVALUATION_KEYS")
+    normalized_gt = row_ground_truth.copy()
+    normalized_gt["year"] = normalized_gt.year.astype(str)
+    source = audit.copy().fillna("")
+    source["year"] = source.year.astype(str)
+    candidate = candidate_rows.copy().fillna("")
+    candidate["year"] = candidate.year.astype(str)
+    audit_by_key = source.set_index(key_columns, drop=False)
+    candidate_by_key = candidate.set_index(key_columns, drop=False)
+    if audit_by_key.index.has_duplicates or candidate_by_key.index.has_duplicates:
+        raise ValueError("DUPLICATE_PILOT_PREDICTION_SOURCE_KEY")
+    records: list[dict[str, object]] = []
+    for key in normalized_gt[key_columns].itertuples(index=False, name=None):
+        if key not in audit_by_key.index:
+            raise ValueError("FROZEN_ROW_KEY_MISSING_FROM_PILOT_AUDIT")
+        raw = (
+            candidate_by_key.loc[key].to_dict()
+            if key in candidate_by_key.index
+            else audit_by_key.loc[key].to_dict()
+        )
+        records.append(
+            {
+                "firm_key": key[0],
+                "year": int(key[1]),
+                "proposed_event_id": str(raw.get("proposed_event_id", "") or ""),
+                "parser_change_flag": str(
+                    raw.get("company_name_change_flag", raw.get("parser_change_flag", "")) or ""
+                ),
+                "parser_previous_name": str(
+                    raw.get("legal_name_previous", raw.get("parser_previous_name", "")) or ""
+                ),
+                "parser_new_name": str(
+                    raw.get("legal_name_new", raw.get("parser_new_name", "")) or ""
+                ),
+                "parser_effective_date": str(
+                    raw.get("change_effective_date", raw.get("parser_effective_date", "")) or ""
+                ),
+                "parser_legal_name_at_year_end": str(
+                    raw.get("legal_name_at_year_end", raw.get("parser_legal_name_at_year_end", ""))
+                    or raw.get("legal_name_current_in_report", "")
+                ),
+                "candidate_reason": str(raw.get("candidate_reason", "") or ""),
+                "parser_source_url": str(
+                    raw.get("change_evidence_url", raw.get("parser_source_url", ""))
+                    or raw.get("source_report_url", "")
+                ),
+            }
+        )
+    result = pd.DataFrame(records)
+    if result.duplicated(key_columns).any():
+        raise ValueError("DUPLICATE_FROZEN_ROW_PREDICTION_KEY")
+    return result
 
 
 def _prepare_pilot_ground_truth_review(
@@ -620,33 +698,24 @@ def _build_v2_strict_pilot_summary(
         and event_truth_aligned.parser_date_precision.eq(events_aligned.parser_date_precision).all()
         and set(event_ground_truth.event_id) == set(events.event_id)
     )
+    candidate_keys = set(
+        candidates.firm_key.astype(str).str.cat(candidates.year.astype(str), sep="|")
+    )
+    frozen_row_keys = set(
+        row_ground_truth.firm_key.astype(str).str.cat(row_ground_truth.year.astype(str), sep="|")
+    )
+    prediction_row_keys = set(rows.firm_key.astype(str).str.cat(rows.year.astype(str), sep="|"))
     rows_complete = bool(
-        len(rows) == len(candidates)
+        len(rows) == len(row_ground_truth)
         and len(rows)
         and row_join_ok
+        and prediction_row_keys == frozen_row_keys
+        and candidate_keys.issubset(frozen_row_keys)
         and _review_is_complete(row_ground_truth, row_required)
         and row_ground_truth.review_status.eq("PASS").all()
         and row_ground_truth.reviewer_evidence_url.str.startswith("https://").all()
         and row_ground_truth.reviewer_evidence_excerpt.str.strip().ne("").all()
         and row_ground_truth.review_is_change_related.isin({"YES", "NO"}).all()
-        and row_truth_aligned.parser_change_flag.eq(
-            row_prediction.reindex(row_truth_aligned.index).parser_change_flag
-        ).all()
-        and row_truth_aligned.parser_legal_name_at_year_end.eq(
-            row_prediction.reindex(row_truth_aligned.index).parser_legal_name_at_year_end
-        ).all()
-        and row_truth_aligned.proposed_event_id.eq(
-            row_prediction.reindex(row_truth_aligned.index).proposed_event_id
-        ).all()
-        and row_truth_aligned.candidate_reason.eq(
-            row_prediction.reindex(row_truth_aligned.index).candidate_reason
-        ).all()
-        and row_truth_aligned.parser_previous_name.eq(
-            row_prediction.reindex(row_truth_aligned.index).parser_previous_name
-        ).all()
-        and row_truth_aligned.parser_new_name.eq(
-            row_prediction.reindex(row_truth_aligned.index).parser_new_name
-        ).all()
         and row_ground_truth.review_change_flag.isin({"YES", "NO"}).all()
         and row_ground_truth.loc[
             row_ground_truth.review_is_change_related.eq("YES"), "review_previous_name"
@@ -669,9 +738,9 @@ def _build_v2_strict_pilot_summary(
             row_ground_truth.review_is_change_related.eq("YES"), "review_event_id"
         ]
         .eq(
-            row_ground_truth.loc[
-                row_ground_truth.review_is_change_related.eq("YES"), "proposed_event_id"
-            ]
+            reviewed_predictions.loc[
+                row_truth_aligned.review_is_change_related.eq("YES"), "proposed_event_id"
+            ].to_numpy()
         )
         .all()
         and row_ground_truth.loc[
@@ -680,12 +749,12 @@ def _build_v2_strict_pilot_summary(
         .fillna("")
         .eq("")
         .all()
-        and set(
-            row_ground_truth.firm_key.astype(str).str.cat(
-                row_ground_truth.year.astype(str), sep="|"
-            )
-        )
-        == set(candidates.firm_key.astype(str).str.cat(candidates.year.astype(str), sep="|"))
+        and row_truth_aligned.loc[
+            row_truth_aligned.review_is_change_related.eq("NO"), "review_event_id"
+        ]
+        .fillna("")
+        .eq("")
+        .all()
     )
     passed = bool(
         sample_exact
@@ -735,6 +804,12 @@ def _build_v2_strict_pilot_summary(
         "change_candidate_row_fingerprint": _frame_fingerprint(candidates),
         "change_event_roster_fingerprint": _frame_fingerprint(events),
         "change_row_review_fingerprint": _frame_fingerprint(rows),
+        "row_evaluation_denominator": len(row_ground_truth),
+        "row_evaluation_key_fingerprint": _frame_fingerprint(
+            row_ground_truth[["firm_key", "year"]]
+            .astype(str)
+            .sort_values(["firm_key", "year"], kind="stable")
+        ),
         "event_ground_truth_fingerprint": _frame_fingerprint(event_ground_truth),
         "row_ground_truth_fingerprint": _frame_fingerprint(row_ground_truth),
         "change_event_denominator": len(events),
@@ -767,16 +842,20 @@ def _finalize_pilot_change_events() -> dict[str, object]:
     statuses = pd.read_csv(OUTPUT / "pilot_status.csv", dtype=str).fillna("")
     sample = pd.read_csv(OUTPUT / "pilot_sample.csv", dtype=str).fillna("")
     targets = pd.read_csv(OUTPUT / "pilot_firm_year_targets.csv", dtype=str).fillna("")
-    candidates, events, rows = _build_pilot_change_artifacts(audit, statuses)
-    candidates.to_csv(OUTPUT / "pilot_change_candidate_rows.csv", index=False, encoding="utf-8-sig")
-    events.to_csv(OUTPUT / "pilot_change_event_roster.csv", index=False, encoding="utf-8-sig")
-    rows.to_csv(OUTPUT / "pilot_change_row_review.csv", index=False, encoding="utf-8-sig")
     event_gt_path = OUTPUT / "pilot_change_event_ground_truth.csv"
     row_gt_path = OUTPUT / "pilot_change_row_ground_truth.csv"
     if not event_gt_path.exists() or not row_gt_path.exists():
         raise ValueError("INDEPENDENT_PILOT_GROUND_TRUTH_FILES_MISSING")
     event_gt = pd.read_csv(event_gt_path, dtype=str).fillna("")
     row_gt = pd.read_csv(row_gt_path, dtype=str).fillna("")
+    evaluation_keys = set(zip(row_gt.firm_key.astype(str), row_gt.year.astype(int), strict=True))
+    candidates, events, candidate_predictions = _build_pilot_change_artifacts(
+        audit, statuses, evaluation_keys
+    )
+    rows = _build_frozen_row_predictions(audit, candidate_predictions, row_gt)
+    candidates.to_csv(OUTPUT / "pilot_change_candidate_rows.csv", index=False, encoding="utf-8-sig")
+    events.to_csv(OUTPUT / "pilot_change_event_roster.csv", index=False, encoding="utf-8-sig")
+    rows.to_csv(OUTPUT / "pilot_change_row_review.csv", index=False, encoding="utf-8-sig")
     summary = _build_v2_strict_pilot_summary(
         sample, targets, audit, candidates, events, rows, event_gt, row_gt
     )
@@ -960,6 +1039,11 @@ def _load_status_cache(
         except (OSError, ValueError, KeyError, TypeError):
             continue
         if key not in target_pairs or row.get("status") not in STATUSES:
+            continue
+        if (
+            row.get("status") in {"PENDING", "COMPLETE_NO_CHANGE", "COMPLETE_NAME_CHANGE"}
+            and row.get("parser_revision") != PARSER_REVISION
+        ):
             continue
         if retry_failures and row.get("status") in RETRYABLE_STATUSES:
             continue
@@ -1718,6 +1802,8 @@ def _run(args: argparse.Namespace) -> int:
             row = _process_one(
                 client, firm_lookup[firm_key], year, sources.get((firm_key, year)), report_index
             )
+            if row.get("status") in {"PENDING", "COMPLETE_NO_CHANGE", "COMPLETE_NAME_CHANGE"}:
+                row["parser_revision"] = PARSER_REVISION
             row["pilot_stratum"] = str(
                 targets.loc[targets.firm_key.astype(str).eq(firm_key), "pilot_stratum"].iloc[0]
             )

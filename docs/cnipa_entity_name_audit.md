@@ -74,7 +74,7 @@ R3 的本地 v1 摘要不构成 R3E 的 Gate 输入，也不授权 Full。
 
 R3E 曾记录的行级准确率与 legal-name precision 1.0 不构成独立审计结果：当时 `manual_*` / `review_*` 字段由 parser 预测直接复制，再与同源预测比较，属于自我比较。该结论已由 R3E-R 独立复核取代，不得作为 Full 授权依据。
 
-## 4.4A-R3E-R 独立 Pilot Ground-Truth 复核
+## 4.4A-R3E-R 历史 Pilot Ground-Truth 复核（已由 R3F 更新）
 
 固定 Pilot 仍为 seed `20260927`、92 家、461 个 firm-year；不改变 14 条候选行及 6 个事件的冻结总体。预测产物与独立 ground-truth CSV 已分离，逐项审核了全部 6 个事件和 14 条行级记录，并将候选、事件 roster、行级预测及两份 ground truth 的指纹绑定到 strict v2 摘要。两条 300365 记录明确判为 `NOT_A_LEGAL_NAME_CHANGE_EVENT`：2020 年报主体名称正常；2021 解析文本来自成都分公司释义，不是上市主体名称。
 
@@ -85,3 +85,15 @@ v1、legacy summary 与 `--pilot-pass` 单独不能授权 Full。当前 Full 授
 CNIPA 全范围状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`：主窗口的 353 个时间关系未决和 695 行缺少年报法人名称尚待后续处理；`zero_semantics` / `missing_semantics` 仍为 pending。verified historical names 仍为 3，unique query names 仍为 5,269。未访问 CNIPA 专利系统，未检索或下载专利。
 
 R3E-R 目标测试：48 passed。全库验证及推送卫生结果以 R3E-R 本轮最终检查记录为准。
+
+## 4.4A-R3F 发行人范围解析修正与固定 Pilot 复核
+
+仅按授权重新取得 300365 的 2020、2021 两份 CNINFO 年报正文。两份请求均 HTTP 200，分别为 4,135,847 bytes（SHA-256 `c8549861dbecf2db79d8884af8e179cfd8d71510adac74a5a2a322c09dda8091`）和 2,385,682 bytes（SHA-256 `315cac49f367b748ba6b14875cbd4ceac22f9eceda9adad54d311e64ee3e5e11`）；均由 `pdftotext -layout` 提取。PDF 未持久化；正文及诊断材料只保存在本地 ignored results。
+
+两年正式发行人名称均位于“第二节 公司简介和主要财务指标—一、公司信息”的“公司的中文名称”字段，内容为“北京恒华伟业科技股份有限公司”。旧解析器对全文做无边界的 `公司名称` 子串匹配，2021 年先命中释义中的“股份改制前公司名称”，并把后续“成都分公司 指 北京恒华伟业科技股份有限公司成都分公司”误认成发行人名称。修复改为字段边界匹配并优先限定正式公司信息栏目；不包含证券代码、分公司或企业全称特判。旧成功缓存没有 parser revision，曾使旧解析结果继续留在 Pilot 产物中；当前缓存加入解析版本校验，旧成功解析不会再被静默复用。
+
+两份报告均未发现发行人层面的“公司名称是否变更”字段或明确的未更名陈述。2021 年的“公司注册地址历史变更情况”只涉及注册地址；释义中的分公司名称也不是发行人更名证据。因此 change flag 仍为 `UNKNOWN`，不因未检出更名事件而推断为 `NO`。
+
+重新生成的候选集为 12 行；评估仍按冻结的 14 个 row-ground-truth 键逐行计分，未因候选退出而缩小分母。6 个事件 roster 未变，旧名、新名、日期和日期精度准确率均为 1.0；14 行 year-end legal-name accuracy 为 14/14，change-flag accuracy 为 12/14（0.8571）。剩余两项旗标差异对应仍为 `UNKNOWN` 的 300365 年度记录。行级审核完整，事件准确率无回退，但严格 Gate 仍为 `PILOT_GATE_NOT_PASSED`，不授权 Full。两份冻结 ground truth 未修改，指纹保持不变；未执行 Full、额外年度抓取或专利流程。
+
+R3F 验证：全库 pytest 323 passed；Ruff `All checks passed!`；116 个依赖兼容；push hygiene 通过。tracked 变更仅涉及本段审计文档、协议/进度文档、metadata、通用解析器、Pilot Gate 脚本和测试。
