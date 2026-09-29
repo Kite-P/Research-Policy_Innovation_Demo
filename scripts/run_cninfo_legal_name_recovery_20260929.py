@@ -97,8 +97,283 @@ def _strict_pilot_authorized_v2(
     event_ground_truth: pd.DataFrame,
     row_ground_truth: pd.DataFrame,
 ) -> bool:
-    """v2 conflates occurrence truth with evidence state and can no longer authorize Full."""
+    """v2 is permanently incompatible with the evidence-state evaluation target."""
     return False
+
+
+EVIDENCE_STATE_GT_COLUMNS = [
+    "firm_key", "year", "historical_change_occurrence", "historical_event_id",
+    "review_expected_parser_flag", "evidence_basis", "evidence_tier",
+    "reviewer_evidence_url", "reviewer_evidence_title", "reviewer_evidence_excerpt",
+    "explicit_no_change_disclosure", "verified_change_event_in_target_year",
+    "verified_change_event_outside_target_year", "review_status", "review_notes",
+]
+
+
+def _expected_parser_flag_from_review(
+    *,
+    explicit_change_in_year: bool,
+    explicit_no_change: bool,
+    verified_event_year: int | None,
+    chronology_sufficient: bool,
+    target_year: int | None = None,
+    issuer_level_event: bool = True,
+) -> str:
+    """Classify evidence strength; non-issuer events and silence cannot establish NO."""
+    if not issuer_level_event:
+        verified_event_year = None
+        explicit_change_in_year = False
+        explicit_no_change = False
+    if explicit_change_in_year or (
+        verified_event_year is not None and target_year == verified_event_year
+    ):
+        return "YES"
+    if explicit_no_change:
+        return "NO"
+    if (
+        verified_event_year is not None
+        and target_year is not None
+        and verified_event_year != target_year
+        and chronology_sufficient
+    ):
+        return "NO"
+    return "UNKNOWN"
+
+
+def _validate_evidence_state_ground_truth(
+    frame: pd.DataFrame, expected_keys: set[tuple[str, int]] | None = None
+) -> dict[str, object]:
+    missing = set(EVIDENCE_STATE_GT_COLUMNS) - set(frame.columns)
+    if missing:
+        return {"valid": False, "reason": "MISSING_COLUMNS", "missing": sorted(missing)}
+    reviewed = frame.copy().fillna("")
+    reviewed["year"] = pd.to_numeric(reviewed.year, errors="coerce")
+    tier_values_valid = reviewed.evidence_tier.map(
+        lambda value: bool(value)
+        and set(value.split("+")).issubset({"H1", "H2"})
+        and len(value.split("+")) == len(set(value.split("+")))
+    ).all()
+    no_state_rows = reviewed.loc[reviewed.review_expected_parser_flag.eq("NO")]
+    each_no_has_positive_basis = (
+        no_state_rows.explicit_no_change_disclosure.eq("YES")
+        | no_state_rows.verified_change_event_outside_target_year.eq("YES")
+    ).all()
+    keys = list(zip(reviewed.firm_key.astype(str), reviewed.year, strict=True))
+    complete = bool(
+        not reviewed.year.isna().any()
+        and len(reviewed) > 0
+        and len(set(keys)) == len(keys)
+        and reviewed.historical_change_occurrence.isin({"YES", "NO", "UNRESOLVED"}).all()
+        and reviewed.review_expected_parser_flag.isin({"YES", "NO", "UNKNOWN"}).all()
+        and tier_values_valid
+        and reviewed.explicit_no_change_disclosure.isin({"YES", "NO"}).all()
+        and reviewed.verified_change_event_in_target_year.isin({"YES", "NO"}).all()
+        and reviewed.verified_change_event_outside_target_year.isin({"YES", "NO"}).all()
+        and reviewed.review_status.eq("PASS").all()
+        and reviewed.evidence_basis.str.strip().ne("").all()
+        and reviewed.evidence_tier.str.strip().ne("").all()
+        and reviewed.reviewer_evidence_url.str.startswith("https://").all()
+        and reviewed.reviewer_evidence_title.str.strip().ne("").all()
+        and reviewed.reviewer_evidence_excerpt.str.strip().ne("").all()
+        and reviewed.review_notes.str.strip().ne("").all()
+        and ~(
+            reviewed.verified_change_event_in_target_year.eq("YES")
+            & reviewed.verified_change_event_outside_target_year.eq("YES")
+        ).any()
+        and each_no_has_positive_basis
+    )
+    complete = bool(
+        complete
+        and reviewed.loc[
+            reviewed.review_expected_parser_flag.eq("YES"),
+            "verified_change_event_in_target_year",
+        ].eq("YES").all()
+        and reviewed.loc[
+            reviewed.historical_change_occurrence.eq("YES"), "historical_event_id"
+        ].str.strip().ne("").all()
+        and reviewed.loc[
+            reviewed.historical_change_occurrence.ne("YES"), "historical_event_id"
+        ].fillna("").eq("").all()
+    )
+    complete = bool(
+        complete
+        and (
+            expected_keys is None
+            or set(keys) == {(str(firm), int(year)) for firm, year in expected_keys}
+        )
+    )
+    unresolved = int(reviewed.review_status.ne("PASS").sum())
+    return {
+        "valid": complete,
+        "reason": "PASS" if complete else "INCOMPLETE_OR_INVALID_REVIEW",
+        "unresolved_review_count": unresolved,
+        "row_count": len(reviewed),
+        "fingerprint": _frame_fingerprint(frame),
+        "key_set": sorted(f"{firm}|{int(year)}" for firm, year in keys if pd.notna(year)),
+    }
+
+
+def _score_evidence_state_predictions(
+    predictions: pd.DataFrame, evidence_state_ground_truth: pd.DataFrame
+) -> dict[str, object]:
+    pred = predictions[["firm_key", "year", "parser_change_flag"]].copy()
+    truth = evidence_state_ground_truth[
+        ["firm_key", "year", "review_expected_parser_flag"]
+    ].copy()
+    pred["year"] = pred.year.astype(int)
+    truth["year"] = truth.year.astype(int)
+    if pred.duplicated(["firm_key", "year"]).any() or truth.duplicated(
+        ["firm_key", "year"]
+    ).any():
+        return {"accuracy": 0.0, "denominator": 0, "key_set_exact": False}
+    aligned = pred.merge(truth, on=["firm_key", "year"], how="outer", indicator=True)
+    exact_keys = bool(aligned._merge.eq("both").all())
+    compared = aligned.loc[aligned._merge.eq("both")]
+    accuracy = float(
+        compared.parser_change_flag.eq(compared.review_expected_parser_flag).mean()
+    ) if len(compared) else 0.0
+    return {
+        "accuracy": accuracy,
+        "denominator": len(compared),
+        "key_set_exact": exact_keys,
+    }
+
+
+def _validate_historical_occurrence_alignment(
+    row_ground_truth: pd.DataFrame, evidence_state_ground_truth: pd.DataFrame
+) -> bool:
+    required_row = {"firm_key", "year", "review_change_flag", "review_event_id"}
+    required_evidence = {
+        "firm_key", "year", "historical_change_occurrence", "historical_event_id"
+    }
+    if not required_row.issubset(row_ground_truth) or not required_evidence.issubset(
+        evidence_state_ground_truth
+    ):
+        return False
+    frozen = row_ground_truth[
+        ["firm_key", "year", "review_change_flag", "review_event_id"]
+    ].copy()
+    reviewed = evidence_state_ground_truth[
+        ["firm_key", "year", "historical_change_occurrence", "historical_event_id"]
+    ].copy()
+    frozen["year"] = frozen.year.astype(int)
+    reviewed["year"] = reviewed.year.astype(int)
+    joined = frozen.merge(
+        reviewed, on=["firm_key", "year"], how="outer", validate="one_to_one", indicator=True
+    )
+    if not joined._merge.eq("both").all():
+        return False
+    if not joined.review_change_flag.eq(joined.historical_change_occurrence).all():
+        return False
+    yes_rows = joined.historical_change_occurrence.eq("YES")
+    return bool(
+        joined.loc[yes_rows, "review_event_id"].eq(
+            joined.loc[yes_rows, "historical_event_id"]
+        ).all()
+        and joined.loc[~yes_rows, "historical_event_id"].fillna("").eq("").all()
+    )
+
+
+def _build_v3_strict_pilot_summary(
+    sample: pd.DataFrame,
+    targets: pd.DataFrame,
+    audit: pd.DataFrame,
+    candidates: pd.DataFrame,
+    events: pd.DataFrame,
+    rows: pd.DataFrame,
+    event_ground_truth: pd.DataFrame,
+    row_ground_truth: pd.DataFrame,
+    evidence_state_ground_truth: pd.DataFrame,
+) -> dict[str, object]:
+    evidence_validation = _validate_evidence_state_ground_truth(
+        evidence_state_ground_truth,
+        set(zip(row_ground_truth.firm_key.astype(str), row_ground_truth.year.astype(int))),
+    )
+    historical_alignment = _validate_historical_occurrence_alignment(
+        row_ground_truth, evidence_state_ground_truth
+    )
+    summary = _build_v2_strict_pilot_summary(
+        sample, targets, audit, candidates, events, rows, event_ground_truth, row_ground_truth
+    )
+    evidence_score = _score_evidence_state_predictions(rows, evidence_state_ground_truth)
+    evidence_accuracy = float(evidence_score["accuracy"])
+    evidence_denominator = int(evidence_score["denominator"])
+    metrics = summary["metrics"]
+    historical_accuracy = metrics.pop("firm_year_change_flag_accuracy")
+    metrics["historical_change_occurrence_accuracy"] = historical_accuracy
+    metrics["parser_evidence_state_accuracy"] = evidence_accuracy
+    metrics["parser_evidence_state_denominator"] = evidence_denominator
+    metrics["evidence_state_review_unresolved_count"] = evidence_validation.get(
+        "unresolved_review_count", len(evidence_state_ground_truth)
+    )
+    summary.pop("firm_year_change_flag_accuracy", None)
+    summary["schema"] = "cnipa_strict_pilot_gate_v3"
+    summary["evidence_state_ground_truth_fingerprint"] = evidence_validation.get("fingerprint")
+    summary["evidence_state_ground_truth_review_complete"] = evidence_validation["valid"]
+    summary["historical_occurrence_ground_truth_aligned"] = historical_alignment
+    summary["evidence_state_review_unresolved_count"] = metrics[
+        "evidence_state_review_unresolved_count"
+    ]
+    summary["historical_change_occurrence_accuracy"] = historical_accuracy
+    summary["parser_evidence_state_accuracy"] = evidence_accuracy
+    summary["parser_evidence_state_denominator"] = evidence_denominator
+    passed = bool(
+        evidence_validation["valid"]
+        and historical_alignment
+        and evidence_validation["row_count"] == len(row_ground_truth) == 14
+        and evidence_denominator == 14
+        and evidence_score["key_set_exact"] is True
+        and summary["firm_year_review_complete"]
+        and summary["event_review_complete"]
+        and metrics["event_old_name_accuracy"] == 1.0
+        and metrics["event_new_name_accuracy"] == 1.0
+        and metrics["event_effective_date_accuracy"] == 1.0
+        and metrics["event_date_precision_accuracy"] == 1.0
+        and metrics["firm_year_year_end_name_accuracy"] == 1.0
+        and evidence_accuracy == 1.0
+        and metrics["unresolved_candidate_count"] == 0
+        and metrics["unresolved_event_count"] == 0
+    )
+    summary["status"] = "STRICT_PILOT_GATE_PASS" if passed else "PILOT_GATE_NOT_PASSED"
+    summary["pilot_gate_pass"] = passed
+    summary["failure_reasons"] = [
+        reason for condition, reason in [
+            (evidence_validation["valid"], "EVIDENCE_STATE_REVIEW_INCOMPLETE"),
+            (historical_alignment, "HISTORICAL_OCCURRENCE_GT_MISMATCH"),
+            (
+                evidence_denominator == 14 and evidence_score["key_set_exact"],
+                "EVIDENCE_STATE_DENOMINATOR_NOT_14",
+            ),
+            (evidence_accuracy == 1.0, "PARSER_EVIDENCE_STATE_ACCURACY_BELOW_1_00"),
+            (
+                metrics["firm_year_year_end_name_accuracy"] == 1.0,
+                "YEAR_END_NAME_ACCURACY_BELOW_1_00",
+            ),
+        ] if not condition
+    ]
+    return summary
+
+
+def _strict_pilot_authorized_v3(
+    summary: dict[str, object], sample: pd.DataFrame, targets: pd.DataFrame,
+    audit: pd.DataFrame, candidates: pd.DataFrame, events: pd.DataFrame,
+    rows: pd.DataFrame, event_ground_truth: pd.DataFrame,
+    row_ground_truth: pd.DataFrame, evidence_state_ground_truth: pd.DataFrame,
+) -> bool:
+    expected = _build_v3_strict_pilot_summary(
+        sample, targets, audit, candidates, events, rows, event_ground_truth,
+        row_ground_truth, evidence_state_ground_truth,
+    )
+    return bool(
+        summary == expected
+        and summary.get("schema") == "cnipa_strict_pilot_gate_v3"
+        and summary.get("pilot_gate_pass") is True
+        and summary.get("status") == "STRICT_PILOT_GATE_PASS"
+        and summary.get("parser_evidence_state_accuracy") == 1.0
+        and summary.get("parser_evidence_state_denominator") == 14
+        and summary.get("evidence_state_ground_truth_fingerprint")
+        == _frame_fingerprint(evidence_state_ground_truth)
+    )
 
 
 def _build_pilot_change_candidate_rows(
@@ -777,10 +1052,12 @@ def _finalize_pilot_change_events() -> dict[str, object]:
     targets = pd.read_csv(OUTPUT / "pilot_firm_year_targets.csv", dtype=str).fillna("")
     event_gt_path = OUTPUT / "pilot_change_event_ground_truth.csv"
     row_gt_path = OUTPUT / "pilot_change_row_ground_truth.csv"
-    if not event_gt_path.exists() or not row_gt_path.exists():
+    evidence_gt_path = OUTPUT / "pilot_change_evidence_state_ground_truth.csv"
+    if not event_gt_path.exists() or not row_gt_path.exists() or not evidence_gt_path.exists():
         raise ValueError("INDEPENDENT_PILOT_GROUND_TRUTH_FILES_MISSING")
     event_gt = pd.read_csv(event_gt_path, dtype=str).fillna("")
     row_gt = pd.read_csv(row_gt_path, dtype=str).fillna("")
+    evidence_gt = pd.read_csv(evidence_gt_path, dtype=str).fillna("")
     evaluation_keys = set(zip(row_gt.firm_key.astype(str), row_gt.year.astype(int), strict=True))
     candidates, events, candidate_predictions = _build_pilot_change_artifacts(
         audit, statuses, evaluation_keys
@@ -789,10 +1066,10 @@ def _finalize_pilot_change_events() -> dict[str, object]:
     candidates.to_csv(OUTPUT / "pilot_change_candidate_rows.csv", index=False, encoding="utf-8-sig")
     events.to_csv(OUTPUT / "pilot_change_event_roster.csv", index=False, encoding="utf-8-sig")
     rows.to_csv(OUTPUT / "pilot_change_row_review.csv", index=False, encoding="utf-8-sig")
-    summary = _build_v2_strict_pilot_summary(
-        sample, targets, audit, candidates, events, rows, event_gt, row_gt
+    summary = _build_v3_strict_pilot_summary(
+        sample, targets, audit, candidates, events, rows, event_gt, row_gt, evidence_gt
     )
-    _atomic_json(OUTPUT / "pilot_strict_gate_v2_summary.json", summary)
+    _atomic_json(OUTPUT / "pilot_strict_gate_v3_summary.json", summary)
     return summary
 
 
@@ -1630,7 +1907,7 @@ def _run(args: argparse.Namespace) -> int:
     elif args.stage == "full":
         if not args.pilot_pass:
             raise ValueError("FULL_REQUIRES_EXPLICIT_PILOT_PASS")
-        strict_path = OUTPUT / "pilot_strict_gate_v2_summary.json"
+        strict_path = OUTPUT / "pilot_strict_gate_v3_summary.json"
         sample_path = OUTPUT / "pilot_sample.csv"
         pilot_targets_path = OUTPUT / "pilot_firm_year_targets.csv"
         audit_path = OUTPUT / "pilot_context_audit.csv"
@@ -1639,6 +1916,7 @@ def _run(args: argparse.Namespace) -> int:
         row_review_path = OUTPUT / "pilot_change_row_review.csv"
         event_ground_truth_path = OUTPUT / "pilot_change_event_ground_truth.csv"
         row_ground_truth_path = OUTPUT / "pilot_change_row_ground_truth.csv"
+        evidence_state_ground_truth_path = OUTPUT / "pilot_change_evidence_state_ground_truth.csv"
         required_paths = (
             strict_path,
             sample_path,
@@ -1649,6 +1927,7 @@ def _run(args: argparse.Namespace) -> int:
             row_review_path,
             event_ground_truth_path,
             row_ground_truth_path,
+            evidence_state_ground_truth_path,
         )
         if not all(path.exists() for path in required_paths):
             raise ValueError("CANONICAL_STRICT_PILOT_GATE_INPUTS_MISSING")
@@ -1661,7 +1940,10 @@ def _run(args: argparse.Namespace) -> int:
         frozen_row_review = pd.read_csv(row_review_path, dtype=str).fillna("")
         frozen_event_ground_truth = pd.read_csv(event_ground_truth_path, dtype=str).fillna("")
         frozen_row_ground_truth = pd.read_csv(row_ground_truth_path, dtype=str).fillna("")
-        if not _strict_pilot_authorized_v2(
+        frozen_evidence_state_ground_truth = pd.read_csv(
+            evidence_state_ground_truth_path, dtype=str
+        ).fillna("")
+        if not _strict_pilot_authorized_v3(
             strict_summary,
             frozen_sample,
             frozen_targets,
@@ -1671,6 +1953,7 @@ def _run(args: argparse.Namespace) -> int:
             frozen_row_review,
             frozen_event_ground_truth,
             frozen_row_ground_truth,
+            frozen_evidence_state_ground_truth,
         ):
             raise ValueError("PILOT_GATE_NOT_PASSED")
         targets = primary.copy()

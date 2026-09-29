@@ -97,3 +97,17 @@ R3E-R 目标测试：48 passed。全库验证及推送卫生结果以 R3E-R 本�
 重新生成的候选集为 12 行；评估仍按冻结的 14 个 row-ground-truth 键逐行计分，未因候选退出而缩小分母。6 个事件 roster 未变，旧名、新名、日期和日期精度准确率均为 1.0；14 行 year-end legal-name accuracy 为 14/14，change-flag accuracy 为 12/14（0.8571）。剩余两项旗标差异对应仍为 `UNKNOWN` 的 300365 年度记录。行级审核完整，事件准确率无回退，但严格 Gate 仍为 `PILOT_GATE_NOT_PASSED`，不授权 Full。两份冻结 ground truth 未修改，指纹保持不变；未执行 Full、额外年度抓取或专利流程。
 
 R3F 验证：全库 pytest 323 passed；Ruff `All checks passed!`；116 个依赖兼容；push hygiene 通过。tracked 变更仅涉及本段审计文档、协议/进度文档、metadata、通用解析器、Pilot Gate 脚本和测试。
+
+## 4.4A-R3G 更名发生事实与 parser 证据状态 Gate
+
+R3F 的 `PILOT_GATE_NOT_PASSED` 是旧测量口径下的历史状态，现由 R3G v3 Gate supersede。R3F 的 parser 预测、固定 14-row evaluation keys、6 个事件和两份冻结 ground truth 均保持不变。本轮没有把 `300365` 的历史发生事实从 `NO` 改成 `UNKNOWN`，也没有修改 parser 来迎合旧标签。
+
+明确拆分两个测量目标：`historical_change_occurrence` 记录目标年度现实中是否发生法人名称变更；`company_name_change_flag` 是 parser 的 evidence-supported issuer-name-change state。历史准确率只作诊断，严格 Gate 使用独立审核的 `review_expected_parser_flag`。仅未检出事件不能得出 `NO`；无足够 H1/H2 时间证据时应为 `UNKNOWN`。已明确的年末法人名称不因 flag 为 `UNKNOWN` 自动缺失，分支名称不作为发行人事件。
+
+新增本地 ignored `pilot_change_evidence_state_ground_truth.csv`，独立覆盖冻结的 14 行；历史发生分布为 YES=4、NO=10、UNRESOLVED=0；证据状态分布为 YES=4、NO=8、UNKNOWN=2。300365-2020 和 300365-2021 的历史事实均为 NO，证据状态均为 UNKNOWN。此审核表不是旧 GT 的替代版本，也未提交 Git。
+
+v3 strict summary 绑定 evidence-state GT fingerprint `351231a42842ae08e0d612b3b06f1b9811018ec37eec8b9219e09c2a99324d26`。新表中的历史发生标签与冻结 row GT 逐行 14/14 一致，YES 行 event ID 亦通过一致性核验。冻结旧 GT 文件 SHA-256 仍分别为 event `E1900A01FFF61610E1325623EC59870D9063A14C6925E4075639855745D5E174`、row `81EB18D82611CE7BDDF7D9895ED57237026B9B5D97B0DD258DDA7D0BA266D342`。固定分母仍为 14；历史 occurrence accuracy=12/14（诊断），parser evidence-state accuracy=14/14；year-end legal-name=14/14；event old-name、new-name、date、date-precision accuracy 均为 1.0；独立审核未决数为 0。Gate 为 `STRICT_PILOT_GATE_PASS`。
+
+Full 授权 schema 升为 `cnipa_strict_pilot_gate_v3`，必须重算并匹配 evidence-state fingerprint、14-row 分母和 1.0 evidence-state accuracy。v1、legacy、旧 v2 summary 与 `--pilot-pass` 单独均不可绕过。R3G 未执行 Full 23,448、targeted Full、CNIPA 专利系统访问、353/695 修复、BSE、财务/省份/政策流程或回归。范围状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；`zero_semantics` 和 `missing_semantics` 仍为 pending。
+
+R3G 最终验证：pytest 326 passed；Ruff `All checks passed!`；`uv pip check` 检查 116 packages 且兼容；push hygiene PASS。独立审核完整，旧 GT fingerprints 精确不变。仅涉及 Gate runner、测试、CNIPA protocol/audit/progress 文档及 metadata；不含 parser 行为或数据范围修改。

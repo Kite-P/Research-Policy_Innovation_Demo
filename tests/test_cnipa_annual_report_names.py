@@ -1118,7 +1118,7 @@ def test_v2_gate_requires_complete_independent_event_and_row_reviews():
     )
     assert summary["schema"] == "cnipa_strict_pilot_gate_v2"
     assert summary["pilot_gate_pass"] is True
-    assert _strict_pilot_authorized_v2(
+    assert not _strict_pilot_authorized_v2(
         summary, sample, targets, audit, candidates, events, rows, event_gt, row_gt
     )
     assert not _strict_pilot_authorized_v2(
@@ -1674,3 +1674,240 @@ def test_h2_short_text_pdf_is_audited_and_next_notice_is_checked(tmp_path, monke
     ]
     assert current["company_name_change_flag"] == "YES"
     assert current["legal_name_previous"] == old_name
+
+
+def test_v3_evidence_state_semantics_and_old_authorization(monkeypatch, tmp_path):
+    import pandas as pd
+
+    from scripts.run_cninfo_legal_name_recovery_20260929 import (
+        _expected_parser_flag_from_review,
+        _score_evidence_state_predictions,
+        _validate_evidence_state_ground_truth,
+        _validate_historical_occurrence_alignment,
+    )
+
+    assert _expected_parser_flag_from_review(
+        explicit_change_in_year=False,
+        explicit_no_change=False,
+        verified_event_year=None,
+        chronology_sufficient=False,
+    ) == "UNKNOWN"
+    assert _expected_parser_flag_from_review(
+        explicit_change_in_year=True,
+        explicit_no_change=False,
+        verified_event_year=None,
+        chronology_sufficient=False,
+    ) == "YES"
+    assert _expected_parser_flag_from_review(
+        explicit_change_in_year=False,
+        explicit_no_change=False,
+        verified_event_year=2024,
+        chronology_sufficient=True,
+        target_year=2024,
+    ) == "YES"
+    assert _expected_parser_flag_from_review(
+        explicit_change_in_year=False,
+        explicit_no_change=False,
+        verified_event_year=2010,
+        chronology_sufficient=True,
+        target_year=2020,
+    ) == "NO"
+    assert _expected_parser_flag_from_review(
+        explicit_change_in_year=False,
+        explicit_no_change=False,
+        verified_event_year=2010,
+        chronology_sufficient=False,
+        target_year=2020,
+    ) == "UNKNOWN"
+    assert _expected_parser_flag_from_review(
+        explicit_change_in_year=False,
+        explicit_no_change=True,
+        verified_event_year=None,
+        chronology_sufficient=False,
+        target_year=2020,
+    ) == "NO"
+
+    row = {
+        "firm_key": "SZSE:300365:2014-01-23",
+        "year": 2020,
+        "historical_change_occurrence": "NO",
+        "historical_event_id": "",
+        "review_expected_parser_flag": "UNKNOWN",
+        "evidence_basis": "年末法人名称可确认；未见足够事件时间证据",
+        "evidence_tier": "H1",
+        "reviewer_evidence_url": "https://example.invalid/report.pdf",
+        "reviewer_evidence_title": "年度报告",
+        "reviewer_evidence_excerpt": "公司的中文名称为甲公司",
+        "explicit_no_change_disclosure": "NO",
+        "verified_change_event_in_target_year": "NO",
+        "verified_change_event_outside_target_year": "NO",
+        "review_status": "PASS",
+        "review_notes": "历史事实与证据状态分离",
+    }
+    validation = _validate_evidence_state_ground_truth(pd.DataFrame([row]))
+    assert validation["valid"] is True
+    assert validation["unresolved_review_count"] == 0
+    assert validation["fingerprint"]
+    assert _validate_historical_occurrence_alignment(
+        pd.DataFrame([{
+            "firm_key": row["firm_key"], "year": 2020,
+            "review_change_flag": "NO", "review_event_id": "",
+        }]),
+        pd.DataFrame([row]),
+    )
+    predicted = pd.DataFrame(
+        [{"firm_key": row["firm_key"], "year": 2020, "parser_change_flag": "UNKNOWN"}]
+    )
+    expected = pd.DataFrame(
+        [{
+            "firm_key": row["firm_key"],
+            "year": 2020,
+            "review_expected_parser_flag": "UNKNOWN",
+        }]
+    )
+    assert _score_evidence_state_predictions(predicted, expected)["accuracy"] == 1.0
+    assert _score_evidence_state_predictions(
+        predicted.assign(parser_change_flag="NO"), expected
+    )["accuracy"] == 0.0
+    explicit_no = expected.assign(review_expected_parser_flag="NO")
+    assert _score_evidence_state_predictions(
+        predicted, explicit_no
+    )["accuracy"] == 0.0
+    assert _score_evidence_state_predictions(
+        predicted.assign(parser_change_flag="NO"), explicit_no
+    )["accuracy"] == 1.0
+    assert _expected_parser_flag_from_review(
+        explicit_change_in_year=True,
+        explicit_no_change=False,
+        verified_event_year=2024,
+        chronology_sufficient=True,
+        target_year=2024,
+        issuer_level_event=False,
+    ) == "UNKNOWN"
+    pending = pd.DataFrame([row | {"review_status": "PENDING"}])
+    assert _validate_evidence_state_ground_truth(pending)["valid"] is False
+
+
+def test_v3_gate_uses_14_evidence_rows_not_historical_no(monkeypatch):
+    import copy
+
+    import pandas as pd
+
+    import scripts.run_cninfo_legal_name_recovery_20260929 as recovery
+
+    keys = [(f"SZSE:{index:06d}:2000-01-01", 2020) for index in range(14)]
+    truth = pd.DataFrame(
+        [
+            {
+                "firm_key": firm,
+                "year": year,
+                "historical_change_occurrence": "NO" if index == 0 else "YES",
+                "historical_event_id": "" if index == 0 else f"EVT-{index}",
+                "review_expected_parser_flag": "UNKNOWN" if index == 0 else "YES",
+                "evidence_basis": "independent review basis",
+                "evidence_tier": "H1",
+                "reviewer_evidence_url": "https://example.invalid/report.pdf",
+                "reviewer_evidence_title": "annual report",
+                "reviewer_evidence_excerpt": "issuer-level evidence excerpt",
+                "explicit_no_change_disclosure": "NO",
+                "verified_change_event_in_target_year": "NO" if index == 0 else "YES",
+                "verified_change_event_outside_target_year": "NO",
+                "review_status": "PASS",
+                "review_notes": "reviewed independently",
+            }
+            for index, (firm, year) in enumerate(keys)
+        ]
+    )
+    rows = pd.DataFrame(
+        [
+            {"firm_key": firm, "year": year, "parser_change_flag": "UNKNOWN" if i == 0 else "YES"}
+            for i, (firm, year) in enumerate(keys)
+        ]
+    )
+    row_gt = pd.DataFrame(
+        [
+            {
+                "firm_key": firm,
+                "year": year,
+                "review_change_flag": "NO" if index == 0 else "YES",
+                "review_event_id": "" if index == 0 else f"EVT-{index}",
+            }
+            for index, (firm, year) in enumerate(keys)
+        ]
+    )
+    base = {
+        "metrics": {
+            "firm_year_change_flag_accuracy": 13 / 14,
+            "event_old_name_accuracy": 1.0,
+            "event_new_name_accuracy": 1.0,
+            "event_effective_date_accuracy": 1.0,
+            "event_date_precision_accuracy": 1.0,
+            "firm_year_year_end_name_accuracy": 1.0,
+            "unresolved_candidate_count": 0,
+            "unresolved_event_count": 0,
+        },
+        "event_review_complete": True,
+        "firm_year_review_complete": True,
+        "row_evaluation_denominator": 14,
+    }
+    monkeypatch.setattr(
+        recovery, "_build_v2_strict_pilot_summary", lambda *args: copy.deepcopy(base)
+    )
+    summary = recovery._build_v3_strict_pilot_summary(
+        pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
+        rows, pd.DataFrame(), row_gt, truth,
+    )
+    assert summary["row_evaluation_denominator"] == 14
+    assert summary["historical_change_occurrence_accuracy"] == 13 / 14
+    assert summary["parser_evidence_state_accuracy"] == 1.0
+    assert summary["pilot_gate_pass"] is True
+
+    overclaimed = rows.assign(parser_change_flag="NO")
+    failing = recovery._build_v3_strict_pilot_summary(
+        pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
+        overclaimed, pd.DataFrame(), row_gt, truth,
+    )
+    assert failing["parser_evidence_state_accuracy"] < 1.0
+    assert failing["pilot_gate_pass"] is False
+
+    pending = truth.assign(review_status="PENDING")
+    blocked = recovery._build_v3_strict_pilot_summary(
+        pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
+        rows, pd.DataFrame(), row_gt, pending,
+    )
+    assert blocked["evidence_state_ground_truth_review_complete"] is False
+    assert blocked["pilot_gate_pass"] is False
+
+    missing_row = truth.iloc[:-1].copy()
+    missing_key = recovery._build_v3_strict_pilot_summary(
+        pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
+        rows.iloc[:-1], pd.DataFrame(), row_gt.iloc[:-1], missing_row,
+    )
+    assert missing_key["parser_evidence_state_denominator"] == 13
+    assert missing_key["pilot_gate_pass"] is False
+
+
+def test_v3_evidence_fingerprint_mismatch_blocks_authorization(monkeypatch):
+    import pandas as pd
+
+    import scripts.run_cninfo_legal_name_recovery_20260929 as recovery
+
+    ground_truth = pd.DataFrame([{"firm_key": "SSE:600001:2000-01-01", "year": 2024}])
+    summary = {
+        "schema": "cnipa_strict_pilot_gate_v3",
+        "pilot_gate_pass": True,
+        "status": "STRICT_PILOT_GATE_PASS",
+        "parser_evidence_state_accuracy": 1.0,
+        "parser_evidence_state_denominator": 14,
+        "evidence_state_ground_truth_fingerprint": recovery._frame_fingerprint(ground_truth),
+    }
+    monkeypatch.setattr(recovery, "_build_v3_strict_pilot_summary", lambda *args: summary)
+    assert recovery._strict_pilot_authorized_v3(
+        summary, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
+        pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), ground_truth,
+    )
+    changed = ground_truth.assign(year=2025)
+    assert not recovery._strict_pilot_authorized_v3(
+        summary, pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
+        pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), changed,
+    )
