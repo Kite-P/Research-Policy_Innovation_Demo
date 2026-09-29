@@ -93,10 +93,23 @@ def _strict_pilot_authorized_v2(
     candidates: pd.DataFrame,
     events: pd.DataFrame,
     rows: pd.DataFrame,
+    event_ground_truth: pd.DataFrame,
+    row_ground_truth: pd.DataFrame,
 ) -> bool:
+    expected = _build_v2_strict_pilot_summary(
+        sample,
+        targets,
+        audit,
+        candidates,
+        events,
+        rows,
+        event_ground_truth,
+        row_ground_truth,
+    )
     metrics = summary.get("metrics")
     return bool(
-        summary.get("schema") == "cnipa_strict_pilot_gate_v2"
+        summary == expected
+        and summary.get("schema") == "cnipa_strict_pilot_gate_v2"
         and summary.get("status") == "STRICT_PILOT_GATE_PASS"
         and summary.get("pilot_gate_pass") is True
         and summary.get("seed") == SEED
@@ -110,33 +123,20 @@ def _strict_pilot_authorized_v2(
         and summary.get("change_candidate_row_fingerprint") == _frame_fingerprint(candidates)
         and summary.get("change_event_roster_fingerprint") == _frame_fingerprint(events)
         and summary.get("change_row_review_fingerprint") == _frame_fingerprint(rows)
+        and summary.get("event_ground_truth_fingerprint") == _frame_fingerprint(event_ground_truth)
+        and summary.get("row_ground_truth_fingerprint") == _frame_fingerprint(row_ground_truth)
         and int(summary.get("change_event_denominator", -1)) == len(events)
         and int(summary.get("change_related_firm_year_rows", -1)) == len(candidates)
         and candidates.firm_key.astype(str).str.cat(candidates.year.astype(str), sep="|").is_unique
         and events.event_id.ne("").all()
         and events.event_id.is_unique
-        and events.manual_review_status.eq("PASS").all()
-        and events.event_verification_status.eq("VERIFIED").all()
-        and events.previous_legal_name.ne("").all()
-        and events.new_legal_name.ne("").all()
-        and events.evidence_url.str.startswith("https://").all()
         and len(rows) == len(candidates)
-        and rows.review_status.eq("PASS").all()
         and rows.firm_key.astype(str).str.cat(rows.year.astype(str), sep="|").is_unique
-        and (
-            rows.event_id.ne("")
-            | (
-                rows.review_result.eq("NOT_A_LEGAL_NAME_CHANGE_EVENT")
-                & rows.exclusion_reason.ne("")
-            )
-        ).all()
-        and rows.review_evidence_url.str.startswith("https://").all()
-        and rows.loc[rows.event_id.ne(""), "manual_previous_name"].ne("").all()
-        and rows.loc[rows.event_id.ne(""), "manual_new_name"].ne("").all()
-        and rows.loc[rows.event_id.ne(""), "manual_change_flag"].isin({"YES", "NO"}).all()
         and set(candidates.firm_key.astype(str).str.cat(candidates.year.astype(str), sep="|"))
         == set(rows.firm_key.astype(str).str.cat(rows.year.astype(str), sep="|"))
-        and set(rows.loc[rows.event_id.ne(""), "event_id"]).issubset(set(events.event_id))
+        and set(rows.loc[rows.proposed_event_id.ne(""), "proposed_event_id"]).issubset(
+            set(events.event_id)
+        )
         and summary.get("event_review_complete") is True
         and summary.get("firm_year_review_complete") is True
         and summary.get("reviewed_event_ids") == sorted(events.event_id.tolist())
@@ -150,6 +150,7 @@ def _strict_pilot_authorized_v2(
         and metrics.get("event_old_name_accuracy", 0) == 1.0
         and metrics.get("event_new_name_accuracy", 0) == 1.0
         and metrics.get("event_effective_date_accuracy", 0) == 1.0
+        and metrics.get("event_date_precision_accuracy", 0) == 1.0
         and metrics.get("firm_year_change_flag_accuracy", 0) == 1.0
         and metrics.get("firm_year_year_end_name_accuracy", 0) == 1.0
         and metrics.get("unresolved_candidate_count", 1) == 0
@@ -215,6 +216,21 @@ def _build_pilot_change_candidate_rows(
     result["legal_name_at_year_end"] = result.apply(
         lambda row: row.legal_name_at_year_end or row.legal_name_current_in_report, axis=1
     )
+    result["candidate_reason"] = result.apply(
+        lambda row: ";".join(
+            reason
+            for condition, reason in (
+                (bool(row.get("company_name_change_flag") == "YES"), "parser_flag_yes"),
+                (
+                    bool(row.get("legal_name_previous")) and bool(row.get("legal_name_new")),
+                    "parser_old_new_name_pair",
+                ),
+                (bool(row.get("adjacent_year_name_change")), "adjacent_year_name_difference"),
+            )
+            if condition
+        ),
+        axis=1,
+    )
     return result
 
 
@@ -240,16 +256,36 @@ def _build_pilot_change_artifacts(
         identity_rows.legal_name_previous.ne("") & identity_rows.legal_name_new.ne("")
     ]
     events_list, row_mapping = build_canonical_change_event_roster(event_rows.to_dict("records"))
-    events = pd.DataFrame(events_list)
-    if len(events):
-        events["manual_previous_legal_name"] = events.previous_legal_name
-        events["manual_new_legal_name"] = events.new_legal_name
-        events["manual_effective_date"] = events.effective_date
-        events["manual_date_precision"] = events.date_precision
-        events["manual_review_status"] = events.event_verification_status.map(
-            lambda status: "PASS" if status == "VERIFIED" else "UNRESOLVED"
+    raw_events = pd.DataFrame(events_list)
+    if len(raw_events):
+        events = raw_events.rename(
+            columns={
+                "previous_legal_name": "parser_previous_legal_name",
+                "new_legal_name": "parser_new_legal_name",
+                "effective_date": "parser_effective_date",
+                "date_precision": "parser_date_precision",
+                "evidence_tier": "source_evidence_tier",
+                "evidence_url": "source_evidence_url",
+                "announcement_id": "source_announcement_id",
+                "source_firm_year_rows": "source_report_rows",
+            }
         )
-        events["event_notes"] = events.event_notes.fillna("") + "; independent source review"
+        events = events.drop(columns=["event_verification_status", "event_notes"], errors="ignore")
+    else:
+        events = pd.DataFrame(
+            columns=[
+                "event_id",
+                "firm_key",
+                "parser_previous_legal_name",
+                "parser_new_legal_name",
+                "parser_effective_date",
+                "parser_date_precision",
+                "source_evidence_tier",
+                "source_evidence_url",
+                "source_announcement_id",
+                "source_report_rows",
+            ]
+        )
 
     # Include the adjacent pre/post rows in the event-to-year review mapping;
     # the link is allowed only where a verified pair spans adjacent year-end names.
@@ -260,7 +296,9 @@ def _build_pilot_change_artifacts(
         name = str(row.get("legal_name_at_year_end", "") or "")
         related = events.loc[events.firm_key.eq(row["firm_key"])] if len(events) else pd.DataFrame()
         match = (
-            related.loc[related.previous_legal_name.eq(name) | related.new_legal_name.eq(name)]
+            related.loc[
+                related.parser_previous_legal_name.eq(name) | related.parser_new_legal_name.eq(name)
+            ]
             if len(related)
             else pd.DataFrame()
         )
@@ -273,60 +311,145 @@ def _build_pilot_change_artifacts(
         key = f"{row['firm_key']}|{row['year']}"
         event_id = row_mapping.get(key, "")
         event = event_lookup.get(event_id, {})
-        event_year = str(event.get("effective_date", ""))[:4]
-        if not event_year and event.get("date_precision") == "year":
-            source_date = re.search(r"/(20\d{2})-", str(event.get("evidence_url", "")))
+        event_year = str(event.get("parser_effective_date", ""))[:4]
+        if not event_year and event.get("parser_date_precision") == "year":
+            source_date = re.search(r"/(20\d{2})-", str(event.get("source_evidence_url", "")))
             event_year = source_date.group(1) if source_date else ""
         if not event_year:
-            first_source_row = str(event.get("source_firm_year_rows", "")).split(";")[0]
+            first_source_row = str(event.get("source_report_rows", "")).split(";")[0]
             event_year = first_source_row.rsplit("|", 1)[-1] if first_source_row else ""
         event_year = event_year or str(row["year"])
-        old_name = str(event.get("previous_legal_name", "") or row.get("legal_name_previous", ""))
-        new_name = str(event.get("new_legal_name", "") or row.get("legal_name_new", ""))
-        year_end = str(row.get("legal_name_at_year_end", "") or "")
+        year_end = str(
+            row.get("legal_name_at_year_end", "") or row.get("legal_name_current_in_report", "")
+        )
         parser_flag = str(row.get("company_name_change_flag", "") or "")
         if event_id and parser_flag == "UNKNOWN":
             parser_flag = "YES" if int(event_year) == int(row["year"]) else "NO"
-        manual_flag = "YES" if int(event_year) == int(row["year"]) else "NO"
-        if event.get("date_precision") == "year" and int(event_year) == int(row["year"]):
-            manual_flag = "YES"
-        url = str(row.get("change_evidence_url", "") or row.get("source_report_url", ""))
-        is_event = bool(event_id)
         review_records.append(
             {
                 "firm_key": row["firm_key"],
                 "year": int(row["year"]),
-                "event_id": event_id,
+                "proposed_event_id": event_id,
                 "parser_change_flag": parser_flag,
                 "parser_previous_name": row.get("legal_name_previous", ""),
                 "parser_new_name": row.get("legal_name_new", ""),
                 "parser_effective_date": row.get("change_effective_date", ""),
                 "parser_legal_name_at_year_end": year_end,
-                "manual_change_flag": manual_flag,
-                "manual_previous_name": old_name,
-                "manual_new_name": new_name,
-                "manual_effective_date": event.get("effective_date", ""),
-                "manual_legal_name_at_year_end": year_end,
-                "review_status": "PASS"
-                if url.startswith("https://") and (event_id or not old_name or not new_name)
-                else "UNRESOLVED",
-                "review_result": "CHANGE_EVENT_ROW"
-                if is_event
-                else "NOT_A_LEGAL_NAME_CHANGE_EVENT",
-                "review_evidence_url": url,
-                "review_notes": "复核了年报法人全称、事件日期与公告/年报来源；跨年行据年末名称判定",
-                "exclusion_reason": ""
-                if is_event
-                else "候选来自年报名称上下文或相邻年度文本差异，证据未显示法人名称变更事件",
+                "candidate_reason": row.get("candidate_reason", ""),
+                "parser_source_url": row.get("change_evidence_url", "")
+                or row.get("source_report_url", ""),
             }
         )
     rows = pd.DataFrame(review_records)
     if len(events):
         for index, event in events.iterrows():
-            mapped = rows.loc[rows.event_id.eq(event.event_id)]
+            mapped = rows.loc[rows.proposed_event_id.eq(event.event_id)]
             event_rows = sorted({f"{row.firm_key}|{int(row.year)}" for row in mapped.itertuples()})
-            events.loc[index, "source_firm_year_rows"] = ";".join(event_rows)
+            events.loc[index, "source_report_rows"] = ";".join(event_rows)
+    safe_event_columns = [
+        "event_id",
+        "firm_key",
+        "parser_previous_legal_name",
+        "parser_new_legal_name",
+        "parser_effective_date",
+        "parser_date_precision",
+        "source_evidence_tier",
+        "source_evidence_url",
+        "source_announcement_id",
+        "source_report_rows",
+    ]
+    events = events.reindex(columns=safe_event_columns).fillna("")
+    candidates = candidates.loc[
+        :,
+        [
+            column
+            for column in candidates.columns
+            if not str(column).startswith(("manual_", "review_", "audited_", "human_"))
+            and column != "abbreviation_false_positive"
+        ],
+    ]
     return candidates, events, rows
+
+
+def _prepare_pilot_ground_truth_review(
+    output_dir: Path,
+    events: pd.DataFrame,
+    rows: pd.DataFrame,
+    *,
+    force_reset: bool = False,
+) -> None:
+    event_path = output_dir / "pilot_change_event_ground_truth.csv"
+    row_path = output_dir / "pilot_change_row_ground_truth.csv"
+    existing = [path for path in (event_path, row_path) if path.exists()]
+    if existing and not force_reset:
+        raise FileExistsError("GROUND_TRUTH_RESET_REQUIRES_EXPLICIT_FLAG")
+    if existing and force_reset:
+        print(
+            "WARNING: explicit reset will replace and discard existing manual ground-truth review"
+        )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    event_columns = [
+        "event_id",
+        "firm_key",
+        "parser_previous_legal_name",
+        "parser_new_legal_name",
+        "parser_effective_date",
+        "parser_date_precision",
+        "source_evidence_tier",
+        "source_evidence_url",
+        "source_announcement_id",
+        "source_report_rows",
+        "review_previous_legal_name",
+        "review_new_legal_name",
+        "review_effective_date",
+        "review_date_precision",
+        "review_event_is_real",
+        "review_status",
+        "reviewer_evidence_url",
+        "reviewer_evidence_title",
+        "reviewer_evidence_excerpt",
+        "review_notes",
+    ]
+    row_columns = [
+        "firm_key",
+        "year",
+        "candidate_reason",
+        "proposed_event_id",
+        "parser_change_flag",
+        "parser_legal_name_at_year_end",
+        "parser_previous_name",
+        "parser_new_name",
+        "review_is_change_related",
+        "review_event_id",
+        "review_change_flag",
+        "review_legal_name_at_year_end",
+        "review_previous_name",
+        "review_new_name",
+        "review_status",
+        "reviewer_evidence_url",
+        "reviewer_evidence_title",
+        "reviewer_evidence_excerpt",
+        "review_notes",
+        "exclusion_reason",
+    ]
+    event_frame = events.copy().reindex(columns=event_columns[:10]).fillna("")
+    for column in event_columns[10:]:
+        event_frame[column] = "PENDING" if column == "review_status" else ""
+    row_frame = rows.copy().reindex(columns=row_columns[:8]).fillna("")
+    for column in row_columns[8:]:
+        row_frame[column] = "PENDING" if column == "review_status" else ""
+    event_frame.to_csv(event_path, index=False, encoding="utf-8-sig")
+    row_frame.to_csv(row_path, index=False, encoding="utf-8-sig")
+
+
+def _review_is_complete(frame: pd.DataFrame, required: list[str]) -> bool:
+    if frame.empty or not set(required).issubset(frame.columns):
+        return False
+    for column in required:
+        values = frame[column].fillna("").astype(str).str.strip()
+        if values.eq("").any() or values.str.upper().isin({"PENDING", "UNRESOLVED"}).any():
+            return False
+    return True
 
 
 def _build_v2_strict_pilot_summary(
@@ -336,6 +459,8 @@ def _build_v2_strict_pilot_summary(
     candidates: pd.DataFrame,
     events: pd.DataFrame,
     rows: pd.DataFrame,
+    event_ground_truth: pd.DataFrame,
+    row_ground_truth: pd.DataFrame,
 ) -> dict[str, object]:
     named = audit.loc[audit.legal_name_current_in_report.fillna("").ne("")].copy()
     end_name = named.legal_name_at_year_end.where(
@@ -347,85 +472,257 @@ def _build_v2_strict_pilot_summary(
         named.human_audit_status.fillna("").ne("PASS").sum()
         + named.abbreviation_false_positive.fillna("").eq("").sum()
     )
+    event_prediction = events.set_index("event_id", drop=False)
+    event_truth = event_ground_truth.set_index("event_id", drop=False)
+    row_keys = ["firm_key", "year"]
+    row_prediction_frame = rows.copy()
+    row_truth_frame = row_ground_truth.copy()
+    row_prediction_frame["year"] = row_prediction_frame.year.astype(str)
+    row_truth_frame["year"] = row_truth_frame.year.astype(str)
+    row_prediction = row_prediction_frame.set_index(row_keys, drop=False)
+    row_truth = row_truth_frame.set_index(row_keys, drop=False)
+    event_join_ok = set(event_prediction.index) == set(event_truth.index)
+    row_join_ok = set(row_prediction.index) == set(row_truth.index)
+
+    def _accuracy(predicted: pd.Series, reviewed: pd.Series) -> float:
+        if len(predicted) == 0 or len(predicted) != len(reviewed):
+            return 0.0
+        return float(
+            predicted.fillna("")
+            .astype(str)
+            .str.strip()
+            .to_numpy()
+            .__eq__(reviewed.fillna("").astype(str).str.strip().to_numpy())
+            .mean()
+        )
+
+    event_truth_aligned = (
+        event_truth.reindex(event_prediction.index) if event_join_ok else pd.DataFrame()
+    )
+    events_aligned = (
+        event_prediction.reindex(event_truth_aligned.index) if event_join_ok else pd.DataFrame()
+    )
+    row_truth_aligned = row_truth.reindex(row_prediction.index) if row_join_ok else pd.DataFrame()
+    reviewed_predictions = row_prediction if row_join_ok else pd.DataFrame()
+    reviewed_truth = row_truth_aligned if row_join_ok else pd.DataFrame()
+    exact_date_mask = (
+        event_truth_aligned.review_date_precision.eq("exact_date")
+        if event_join_ok and "review_date_precision" in event_truth_aligned
+        else pd.Series(dtype=bool)
+    )
+    candidate_name_accuracy = (
+        _accuracy(
+            reviewed_predictions.parser_legal_name_at_year_end,
+            reviewed_truth.review_legal_name_at_year_end,
+        )
+        if len(reviewed_predictions)
+        else 0.0
+    )
+    independent_unreviewed = (
+        int(row_ground_truth.review_status.fillna("").ne("PASS").sum())
+        + int(event_ground_truth.review_status.fillna("").ne("PASS").sum())
+        if "review_status" in row_ground_truth and "review_status" in event_ground_truth
+        else len(rows) + len(events)
+    )
     metrics: dict[str, object] = {
-        "legal_name_precision": precision,
+        "legal_name_precision": candidate_name_accuracy,
+        "prior_annual_report_audit_precision": precision,
         "security_abbreviation_false_positives": false_positives,
-        "human_audit_unreviewed": unreviewed,
-        "event_old_name_accuracy": float(
-            events.manual_previous_legal_name.eq(events.previous_legal_name).mean()
+        "human_audit_unreviewed": independent_unreviewed,
+        "event_old_name_accuracy": _accuracy(
+            events_aligned.parser_previous_legal_name,
+            event_truth_aligned.review_previous_legal_name,
         )
-        if len(events)
+        if event_join_ok
         else 0.0,
-        "event_new_name_accuracy": float(
-            events.manual_new_legal_name.eq(events.new_legal_name).mean()
+        "event_new_name_accuracy": _accuracy(
+            events_aligned.parser_new_legal_name,
+            event_truth_aligned.review_new_legal_name,
         )
-        if len(events)
+        if event_join_ok
         else 0.0,
-        "event_effective_date_accuracy": float(
-            events.loc[events.date_precision.eq("exact_date"), "manual_effective_date"]
-            .eq(events.loc[events.date_precision.eq("exact_date"), "effective_date"])
-            .mean()
+        "event_effective_date_accuracy": _accuracy(
+            events_aligned.loc[exact_date_mask, "parser_effective_date"],
+            event_truth_aligned.loc[exact_date_mask, "review_effective_date"],
         )
-        if events.date_precision.eq("exact_date").any()
+        if event_join_ok and exact_date_mask.any()
         else 0.0,
-        "firm_year_change_flag_accuracy": float(
-            rows.loc[rows.event_id.ne(""), "manual_change_flag"]
-            .eq(rows.loc[rows.event_id.ne(""), "parser_change_flag"])
-            .mean()
+        "event_date_precision_accuracy": _accuracy(
+            events_aligned.parser_date_precision,
+            event_truth_aligned.review_date_precision,
         )
-        if rows.event_id.ne("").any()
+        if event_join_ok
         else 0.0,
-        "firm_year_year_end_name_accuracy": float(
-            rows.loc[rows.event_id.ne(""), "manual_legal_name_at_year_end"]
-            .eq(rows.loc[rows.event_id.ne(""), "parser_legal_name_at_year_end"])
-            .mean()
+        "firm_year_change_flag_accuracy": _accuracy(
+            reviewed_predictions.parser_change_flag, reviewed_truth.review_change_flag
         )
-        if rows.event_id.ne("").any()
+        if len(reviewed_predictions)
         else 0.0,
-        "unresolved_candidate_count": int(rows.review_status.ne("PASS").sum())
-        if len(rows)
+        "firm_year_year_end_name_accuracy": _accuracy(
+            reviewed_predictions.parser_legal_name_at_year_end,
+            reviewed_truth.review_legal_name_at_year_end,
+        )
+        if len(reviewed_predictions)
+        else 0.0,
+        "unresolved_candidate_count": int(
+            row_ground_truth.review_status.fillna("").ne("PASS").sum()
+        )
+        if "review_status" in row_ground_truth
         else len(candidates),
-        "unresolved_event_count": int(events.event_verification_status.ne("VERIFIED").sum())
-        if len(events)
-        else 1,
+        "unresolved_event_count": int(event_ground_truth.review_status.fillna("").ne("PASS").sum())
+        if "review_status" in event_ground_truth
+        else len(events),
+        "event_accuracy_denominator": len(events),
+        "exact_date_accuracy_denominator": int(exact_date_mask.sum()),
+        "firm_year_accuracy_denominator": len(reviewed_predictions),
+        "legal_name_precision_denominator": len(reviewed_predictions),
+        "independent_review_unreviewed_count": independent_unreviewed,
     }
     sample_exact = int(sample.firm_key.nunique()) == 92
     target_exact = len(targets) == 461 and targets.firm_key.nunique() == 92
+    event_required = [
+        "event_id",
+        "review_previous_legal_name",
+        "review_new_legal_name",
+        "review_effective_date",
+        "review_date_precision",
+        "review_event_is_real",
+        "review_status",
+        "reviewer_evidence_url",
+        "reviewer_evidence_title",
+        "reviewer_evidence_excerpt",
+    ]
+    row_required = [
+        "firm_key",
+        "year",
+        "review_is_change_related",
+        "review_change_flag",
+        "review_legal_name_at_year_end",
+        "review_status",
+        "reviewer_evidence_url",
+        "reviewer_evidence_title",
+        "reviewer_evidence_excerpt",
+    ]
     event_complete = bool(
         len(events)
+        and event_join_ok
         and events.event_id.is_unique
-        and events.manual_review_status.eq("PASS").all()
-        and events.event_verification_status.eq("VERIFIED").all()
-        and events.previous_legal_name.ne("").all()
-        and events.new_legal_name.ne("").all()
-        and events.evidence_url.str.startswith("https://").all()
+        and _review_is_complete(event_ground_truth, event_required)
+        and event_ground_truth.review_status.eq("PASS").all()
+        and event_ground_truth.review_event_is_real.eq("YES").all()
+        and event_ground_truth.reviewer_evidence_url.str.startswith("https://").all()
+        and event_ground_truth.reviewer_evidence_excerpt.str.strip().ne("").all()
+        and event_truth_aligned.parser_previous_legal_name.eq(
+            events_aligned.parser_previous_legal_name
+        ).all()
+        and event_truth_aligned.parser_new_legal_name.eq(events_aligned.parser_new_legal_name).all()
+        and event_truth_aligned.parser_effective_date.eq(events_aligned.parser_effective_date).all()
+        and event_truth_aligned.parser_date_precision.eq(events_aligned.parser_date_precision).all()
+        and set(event_ground_truth.event_id) == set(events.event_id)
     )
     rows_complete = bool(
         len(rows) == len(candidates)
         and len(rows)
-        and rows.review_status.eq("PASS").all()
-        and rows.loc[rows.event_id.eq(""), "exclusion_reason"].ne("").all()
-        and rows.review_evidence_url.str.startswith("https://").all()
-        and rows.loc[rows.event_id.ne(""), "manual_previous_name"].ne("").all()
-        and rows.loc[rows.event_id.ne(""), "manual_new_name"].ne("").all()
-        and rows.loc[rows.event_id.ne(""), "manual_change_flag"].isin({"YES", "NO"}).all()
+        and row_join_ok
+        and _review_is_complete(row_ground_truth, row_required)
+        and row_ground_truth.review_status.eq("PASS").all()
+        and row_ground_truth.reviewer_evidence_url.str.startswith("https://").all()
+        and row_ground_truth.reviewer_evidence_excerpt.str.strip().ne("").all()
+        and row_ground_truth.review_is_change_related.isin({"YES", "NO"}).all()
+        and row_truth_aligned.parser_change_flag.eq(
+            row_prediction.reindex(row_truth_aligned.index).parser_change_flag
+        ).all()
+        and row_truth_aligned.parser_legal_name_at_year_end.eq(
+            row_prediction.reindex(row_truth_aligned.index).parser_legal_name_at_year_end
+        ).all()
+        and row_truth_aligned.proposed_event_id.eq(
+            row_prediction.reindex(row_truth_aligned.index).proposed_event_id
+        ).all()
+        and row_truth_aligned.candidate_reason.eq(
+            row_prediction.reindex(row_truth_aligned.index).candidate_reason
+        ).all()
+        and row_truth_aligned.parser_previous_name.eq(
+            row_prediction.reindex(row_truth_aligned.index).parser_previous_name
+        ).all()
+        and row_truth_aligned.parser_new_name.eq(
+            row_prediction.reindex(row_truth_aligned.index).parser_new_name
+        ).all()
+        and row_ground_truth.review_change_flag.isin({"YES", "NO"}).all()
+        and row_ground_truth.loc[
+            row_ground_truth.review_is_change_related.eq("YES"), "review_previous_name"
+        ]
+        .str.strip()
+        .ne("")
+        .all()
+        and row_ground_truth.loc[
+            row_ground_truth.review_is_change_related.eq("YES"), "review_new_name"
+        ]
+        .str.strip()
+        .ne("")
+        .all()
+        and row_ground_truth.loc[
+            row_ground_truth.review_is_change_related.eq("NO"), "exclusion_reason"
+        ]
+        .str.startswith("NOT_A_LEGAL_NAME_CHANGE_EVENT:")
+        .all()
+        and row_ground_truth.loc[
+            row_ground_truth.review_is_change_related.eq("YES"), "review_event_id"
+        ]
+        .eq(
+            row_ground_truth.loc[
+                row_ground_truth.review_is_change_related.eq("YES"), "proposed_event_id"
+            ]
+        )
+        .all()
+        and row_ground_truth.loc[
+            row_ground_truth.review_is_change_related.eq("NO"), "review_event_id"
+        ]
+        .fillna("")
+        .eq("")
+        .all()
+        and set(
+            row_ground_truth.firm_key.astype(str).str.cat(
+                row_ground_truth.year.astype(str), sep="|"
+            )
+        )
+        == set(candidates.firm_key.astype(str).str.cat(candidates.year.astype(str), sep="|"))
     )
     passed = bool(
         sample_exact
         and target_exact
-        and precision >= 0.99
+        and candidate_name_accuracy >= 0.99
         and false_positives == 0
         and unreviewed == 0
+        and independent_unreviewed == 0
         and event_complete
         and rows_complete
         and metrics["event_old_name_accuracy"] == 1.0
         and metrics["event_new_name_accuracy"] == 1.0
         and metrics["event_effective_date_accuracy"] == 1.0
+        and metrics["event_date_precision_accuracy"] == 1.0
+        and metrics["exact_date_accuracy_denominator"] > 0
         and metrics["firm_year_change_flag_accuracy"] == 1.0
         and metrics["firm_year_year_end_name_accuracy"] == 1.0
         and metrics["unresolved_candidate_count"] == 0
         and metrics["unresolved_event_count"] == 0
     )
+    failure_reasons: list[str] = []
+    if not event_complete:
+        failure_reasons.append("INDEPENDENT_EVENT_REVIEW_INCOMPLETE_OR_REJECTED")
+    if not rows_complete:
+        failure_reasons.append("INDEPENDENT_ROW_REVIEW_INCOMPLETE_OR_UNRESOLVED")
+    if candidate_name_accuracy < 0.99:
+        failure_reasons.append("LEGAL_NAME_PRECISION_BELOW_0_99")
+    if metrics["firm_year_change_flag_accuracy"] != 1.0:
+        failure_reasons.append("FIRM_YEAR_CHANGE_FLAG_ACCURACY_BELOW_1_00")
+    if metrics["firm_year_year_end_name_accuracy"] != 1.0:
+        failure_reasons.append("FIRM_YEAR_YEAR_END_NAME_ACCURACY_BELOW_1_00")
+    if metrics["event_old_name_accuracy"] != 1.0:
+        failure_reasons.append("EVENT_OLD_NAME_ACCURACY_BELOW_1_00")
+    if metrics["event_new_name_accuracy"] != 1.0:
+        failure_reasons.append("EVENT_NEW_NAME_ACCURACY_BELOW_1_00")
+    if metrics["event_effective_date_accuracy"] != 1.0:
+        failure_reasons.append("EVENT_EXACT_DATE_ACCURACY_BELOW_1_00")
     return {
         "schema": "cnipa_strict_pilot_gate_v2",
         "status": "STRICT_PILOT_GATE_PASS" if passed else "PILOT_GATE_NOT_PASSED",
@@ -438,29 +735,30 @@ def _build_v2_strict_pilot_summary(
         "change_candidate_row_fingerprint": _frame_fingerprint(candidates),
         "change_event_roster_fingerprint": _frame_fingerprint(events),
         "change_row_review_fingerprint": _frame_fingerprint(rows),
+        "event_ground_truth_fingerprint": _frame_fingerprint(event_ground_truth),
+        "row_ground_truth_fingerprint": _frame_fingerprint(row_ground_truth),
         "change_event_denominator": len(events),
         "change_related_firm_year_rows": len(candidates),
         "candidate_row_keys": sorted(
             candidates.firm_key.astype(str).str.cat(candidates.year.astype(str), sep="|").tolist()
         ),
         "reviewed_event_ids": sorted(events.event_id.tolist()),
-        "legal_name_precision": precision,
+        "legal_name_precision": candidate_name_accuracy,
         "security_abbreviation_false_positives": false_positives,
-        "human_audit_unreviewed": unreviewed,
+        "human_audit_unreviewed": independent_unreviewed,
         "unresolved_candidate_count": metrics["unresolved_candidate_count"],
         "unresolved_event_count": metrics["unresolved_event_count"],
         "event_old_name_accuracy": metrics["event_old_name_accuracy"],
         "event_new_name_accuracy": metrics["event_new_name_accuracy"],
         "event_effective_date_accuracy": metrics["event_effective_date_accuracy"],
+        "event_date_precision_accuracy": metrics["event_date_precision_accuracy"],
         "firm_year_change_flag_accuracy": metrics["firm_year_change_flag_accuracy"],
         "firm_year_year_end_name_accuracy": metrics["firm_year_year_end_name_accuracy"],
         "event_review_complete": event_complete,
         "firm_year_review_complete": rows_complete,
         "pilot_gate_pass": passed,
         "metrics": metrics,
-        "failure_reasons": []
-        if passed
-        else ["STRICT_CANONICAL_CHANGE_EVENT_REVIEW_INCOMPLETE_OR_INACCURATE"],
+        "failure_reasons": failure_reasons,
     }
 
 
@@ -473,7 +771,15 @@ def _finalize_pilot_change_events() -> dict[str, object]:
     candidates.to_csv(OUTPUT / "pilot_change_candidate_rows.csv", index=False, encoding="utf-8-sig")
     events.to_csv(OUTPUT / "pilot_change_event_roster.csv", index=False, encoding="utf-8-sig")
     rows.to_csv(OUTPUT / "pilot_change_row_review.csv", index=False, encoding="utf-8-sig")
-    summary = _build_v2_strict_pilot_summary(sample, targets, audit, candidates, events, rows)
+    event_gt_path = OUTPUT / "pilot_change_event_ground_truth.csv"
+    row_gt_path = OUTPUT / "pilot_change_row_ground_truth.csv"
+    if not event_gt_path.exists() or not row_gt_path.exists():
+        raise ValueError("INDEPENDENT_PILOT_GROUND_TRUTH_FILES_MISSING")
+    event_gt = pd.read_csv(event_gt_path, dtype=str).fillna("")
+    row_gt = pd.read_csv(row_gt_path, dtype=str).fillna("")
+    summary = _build_v2_strict_pilot_summary(
+        sample, targets, audit, candidates, events, rows, event_gt, row_gt
+    )
     _atomic_json(OUTPUT / "pilot_strict_gate_v2_summary.json", summary)
     return summary
 
@@ -1314,6 +1620,8 @@ def _run(args: argparse.Namespace) -> int:
         candidate_path = OUTPUT / "pilot_change_candidate_rows.csv"
         event_path = OUTPUT / "pilot_change_event_roster.csv"
         row_review_path = OUTPUT / "pilot_change_row_review.csv"
+        event_ground_truth_path = OUTPUT / "pilot_change_event_ground_truth.csv"
+        row_ground_truth_path = OUTPUT / "pilot_change_row_ground_truth.csv"
         required_paths = (
             strict_path,
             sample_path,
@@ -1322,6 +1630,8 @@ def _run(args: argparse.Namespace) -> int:
             candidate_path,
             event_path,
             row_review_path,
+            event_ground_truth_path,
+            row_ground_truth_path,
         )
         if not all(path.exists() for path in required_paths):
             raise ValueError("CANONICAL_STRICT_PILOT_GATE_INPUTS_MISSING")
@@ -1332,6 +1642,8 @@ def _run(args: argparse.Namespace) -> int:
         frozen_candidates = pd.read_csv(candidate_path, dtype=str).fillna("")
         frozen_events = pd.read_csv(event_path, dtype=str).fillna("")
         frozen_row_review = pd.read_csv(row_review_path, dtype=str).fillna("")
+        frozen_event_ground_truth = pd.read_csv(event_ground_truth_path, dtype=str).fillna("")
+        frozen_row_ground_truth = pd.read_csv(row_ground_truth_path, dtype=str).fillna("")
         if not _strict_pilot_authorized_v2(
             strict_summary,
             frozen_sample,
@@ -1340,6 +1652,8 @@ def _run(args: argparse.Namespace) -> int:
             frozen_candidates,
             frozen_events,
             frozen_row_review,
+            frozen_event_ground_truth,
+            frozen_row_ground_truth,
         ):
             raise ValueError("PILOT_GATE_NOT_PASSED")
         targets = primary.copy()
@@ -1563,6 +1877,8 @@ def main() -> int:
     parser.add_argument("--stage", choices=("pilot", "full", "audit-2025"))
     parser.add_argument("--finalize-pilot-audit", action="store_true")
     parser.add_argument("--finalize-pilot-change-events", action="store_true")
+    parser.add_argument("--prepare-pilot-ground-truth-review", action="store_true")
+    parser.add_argument("--force-review-template-reset", action="store_true")
     parser.add_argument("--reconcile-existing-results", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--refresh", action="store_true")
@@ -1578,6 +1894,26 @@ def main() -> int:
         return 0
     if args.finalize_pilot_change_events:
         print(json.dumps(_finalize_pilot_change_events(), ensure_ascii=False, indent=2))
+        return 0
+    if args.prepare_pilot_ground_truth_review:
+        audit = pd.read_csv(OUTPUT / "pilot_context_audit.csv", dtype=str).fillna("")
+        statuses = pd.read_csv(OUTPUT / "pilot_status.csv", dtype=str).fillna("")
+        _, events, rows = _build_pilot_change_artifacts(audit, statuses)
+        _prepare_pilot_ground_truth_review(
+            OUTPUT, events, rows, force_reset=args.force_review_template_reset
+        )
+        print(
+            json.dumps(
+                {
+                    "status": "GROUND_TRUTH_REVIEW_TEMPLATES_PREPARED",
+                    "events": len(events),
+                    "candidate_rows": len(rows),
+                    "review_values": "blank/PENDING; no answers populated",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 0
     if args.reconcile_existing_results:
         print(

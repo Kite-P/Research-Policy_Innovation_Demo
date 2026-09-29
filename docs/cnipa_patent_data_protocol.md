@@ -32,7 +32,7 @@ CNIPA 查询名称只来自已核验的当前法人全称和有正式来源支�
 
 当前名称预检报告见 `docs/cnipa_entity_name_audit.md`。企业级名称证据、碰撞表和查询批次保留在本地 ignored 输出。即使查询名存在多 firm-key 映射，也只记录碰撞，不自动合并或分配专利结果。未确认历史名称有效期时保留 `temporal_match_uncertain`，不能静默跨期匹配。
 
-4.4A-R3E 后，Full 授权只接受 `cnipa_strict_pilot_gate_v2`，并同时校验固定样本、目标和来源证据，以及 `pilot_change_candidate_rows.csv`、`pilot_change_event_roster.csv`、`pilot_change_row_review.csv` 的 SHA-256 指纹。R3E 已在固定 Pilot 92 家/461 firm-year 上完成独立事件与行级审核：14 个候选行、6 个 verified distinct events、12 个 event-linked firm-year rows，strict Pilot Gate 为 `STRICT_PILOT_GATE_PASS`。历史 5 cases / 3-of-5 和 legacy 6 review rows 均不作为新 Gate 分母。v1、legacy summary 及 `--pilot-pass` 单独不能授权 Full；本轮未执行 Full 或 targeted refresh。整体范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`，详见 `docs/cnipa_entity_name_audit.md`。
+R3E-R 复核确认，R3E 曾报告的行级 1.0 是由 parser 预测复制到 `manual_*` / `review_*` 后自我比较所得，不是独立 ground truth，现已作废。Full 只接受 `cnipa_strict_pilot_gate_v2`，并校验固定样本、目标、来源证据、候选集、事件 roster、行级预测，以及独立事件 ground truth 和行级 ground truth 的指纹。固定 Pilot 的 6 个事件与 14 个候选行均完成独立复核；事件准确率为 1.0，但 legal-name precision 为 13/14、change-flag accuracy 为 12/14、year-end legal-name accuracy 为 13/14，故状态为 `PILOT_GATE_NOT_PASSED`，不得授权 Full。历史 5 cases / 3-of-5 和 legacy 6 review rows 不作为新 Gate 分母。v1、legacy summary 及 `--pilot-pass` 单独不能授权 Full；本轮未执行 Full 或 targeted refresh。整体范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`，详见 `docs/cnipa_entity_name_audit.md`。
 
 R2 先完成 92 家/461 firm-year 的固定 Pilot，再从既有 CNINFO 年报索引恢复并审计 2020—2024 全目标证据；身份键纠正后主窗口为 23,448 firm-year，其中 22,753 行提取到法人名称，353 行的名称时间关系仍未决，695 行没有提取到名称。当前状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；不得将查询预检批次视为已完整确认的历史申请人集合。
 

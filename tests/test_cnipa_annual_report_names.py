@@ -881,22 +881,16 @@ def test_v2_gate_requires_complete_independent_event_and_row_reviews():
             "abbreviation_false_positive": "0",
         }
     )
-    candidates = pd.DataFrame([_event_row()])
+    candidates = pd.DataFrame([{"firm_key": "SSE:600001:2000-01-01", "year": 2024}])
     events = pd.DataFrame(
         [
             {
                 "event_id": "EVT-1",
                 "firm_key": "SSE:600001:2000-01-01",
-                "previous_legal_name": "甲股份有限公司",
-                "new_legal_name": "乙股份有限公司",
-                "effective_date": "2024-06-10",
-                "date_precision": "exact_date",
-                "manual_review_status": "PASS",
-                "event_verification_status": "VERIFIED",
-                "evidence_url": "https://notice.test/one.pdf",
-                "manual_previous_legal_name": "甲股份有限公司",
-                "manual_new_legal_name": "乙股份有限公司",
-                "manual_effective_date": "2024-06-10",
+                "parser_previous_legal_name": "甲股份有限公司",
+                "parser_new_legal_name": "乙股份有限公司",
+                "parser_effective_date": "2024-06-10",
+                "parser_date_precision": "exact_date",
             }
         ]
     )
@@ -905,25 +899,79 @@ def test_v2_gate_requires_complete_independent_event_and_row_reviews():
             {
                 "firm_key": "SSE:600001:2000-01-01",
                 "year": 2024,
-                "event_id": "EVT-1",
-                "review_status": "PASS",
-                "manual_change_flag": "YES",
-                "review_result": "CHANGE_EVENT_ROW",
+                "candidate_reason": "parser_old_new_name_pair",
+                "proposed_event_id": "EVT-1",
                 "parser_change_flag": "YES",
                 "parser_legal_name_at_year_end": "乙股份有限公司",
-                "manual_previous_name": "甲股份有限公司",
-                "manual_new_name": "乙股份有限公司",
-                "manual_effective_date": "2024-06-10",
-                "manual_legal_name_at_year_end": "乙股份有限公司",
-                "review_evidence_url": "https://notice.test/one.pdf",
+                "parser_previous_name": "甲股份有限公司",
+                "parser_new_name": "乙股份有限公司",
+            }
+        ]
+    )
+    event_gt = pd.DataFrame(
+        [
+            {
+                "event_id": "EVT-1",
+                "parser_previous_legal_name": "甲股份有限公司",
+                "parser_new_legal_name": "乙股份有限公司",
+                "parser_effective_date": "2024-06-10",
+                "parser_date_precision": "exact_date",
+                "review_previous_legal_name": "甲股份有限公司",
+                "review_new_legal_name": "乙股份有限公司",
+                "review_effective_date": "2024-06-10",
+                "review_date_precision": "exact_date",
+                "review_event_is_real": "YES",
+                "review_status": "PASS",
+                "reviewer_evidence_url": "https://notice.test/event.pdf",
+                "reviewer_evidence_title": "名称变更公告",
+                "reviewer_evidence_excerpt": "法人全称由甲变更为乙",
+            }
+        ]
+    )
+    row_gt = pd.DataFrame(
+        [
+            {
+                "firm_key": "SSE:600001:2000-01-01",
+                "year": 2024,
+                "candidate_reason": "parser_old_new_name_pair",
+                "proposed_event_id": "EVT-1",
+                "parser_change_flag": "YES",
+                "parser_legal_name_at_year_end": "乙股份有限公司",
+                "review_event_id": "EVT-1",
+                "parser_previous_name": "甲股份有限公司",
+                "parser_new_name": "乙股份有限公司",
+                "review_is_change_related": "YES",
+                "review_change_flag": "YES",
+                "review_previous_name": "甲股份有限公司",
+                "review_new_name": "乙股份有限公司",
+                "review_legal_name_at_year_end": "乙股份有限公司",
+                "review_status": "PASS",
+                "reviewer_evidence_url": "https://notice.test/row.pdf",
+                "reviewer_evidence_title": "年报",
+                "reviewer_evidence_excerpt": "公司的中文名称 乙股份有限公司",
                 "exclusion_reason": "",
             }
         ]
     )
-    summary = _build_v2_strict_pilot_summary(sample, targets, audit, candidates, events, rows)
+    summary = _build_v2_strict_pilot_summary(
+        sample, targets, audit, candidates, events, rows, event_gt, row_gt
+    )
     assert summary["schema"] == "cnipa_strict_pilot_gate_v2"
     assert summary["pilot_gate_pass"] is True
-    assert _strict_pilot_authorized_v2(summary, sample, targets, audit, candidates, events, rows)
+    assert _strict_pilot_authorized_v2(
+        summary, sample, targets, audit, candidates, events, rows, event_gt, row_gt
+    )
+    assert not _strict_pilot_authorized_v2(
+        summary,
+        sample,
+        targets,
+        audit,
+        candidates,
+        events,
+        rows,
+        event_gt.assign(review_previous_legal_name="changed"),
+        row_gt,
+    )
     assert not _strict_pilot_authorized_v2(
         {**summary, "schema": "cnipa_strict_pilot_gate_v1"},
         sample,
@@ -932,9 +980,11 @@ def test_v2_gate_requires_complete_independent_event_and_row_reviews():
         candidates,
         events,
         rows,
+        event_gt,
+        row_gt,
     )
     assert not _strict_pilot_authorized_v2(
-        summary, sample, targets, audit, candidates, events, rows.iloc[0:0]
+        summary, sample, targets, audit, candidates, events, rows.iloc[0:0], event_gt, row_gt
     )
     for key in (
         "sample_fingerprint",
@@ -943,64 +993,20 @@ def test_v2_gate_requires_complete_independent_event_and_row_reviews():
         "change_candidate_row_fingerprint",
         "change_event_roster_fingerprint",
         "change_row_review_fingerprint",
+        "event_ground_truth_fingerprint",
+        "row_ground_truth_fingerprint",
     ):
         assert not _strict_pilot_authorized_v2(
-            {**summary, key: "0" * 64}, sample, targets, audit, candidates, events, rows
-        )
-    for key in (
-        "legal_name_precision",
-        "event_old_name_accuracy",
-        "event_new_name_accuracy",
-        "event_effective_date_accuracy",
-        "firm_year_change_flag_accuracy",
-        "firm_year_year_end_name_accuracy",
-    ):
-        bad_metrics = {**summary["metrics"], key: 0.0}
-        assert not _strict_pilot_authorized_v2(
-            {**summary, "metrics": bad_metrics},
+            {**summary, key: "0" * 64},
             sample,
             targets,
             audit,
             candidates,
             events,
             rows,
+            event_gt,
+            row_gt,
         )
-    assert not _strict_pilot_authorized_v2(
-        {**summary, "human_audit_unreviewed": 1},
-        sample,
-        targets,
-        audit,
-        candidates,
-        events,
-        rows,
-    )
-    assert not _strict_pilot_authorized_v2(
-        {**summary, "security_abbreviation_false_positives": 1},
-        sample,
-        targets,
-        audit,
-        candidates,
-        events,
-        rows,
-    )
-    assert not _strict_pilot_authorized_v2(
-        summary,
-        sample,
-        targets,
-        audit,
-        candidates,
-        pd.concat([events, events], ignore_index=True),
-        rows,
-    )
-    assert not _strict_pilot_authorized_v2(
-        summary,
-        sample,
-        targets,
-        audit,
-        candidates,
-        events,
-        rows.assign(review_status="PENDING"),
-    )
     assert not _strict_pilot_authorized_v2(
         {"status": "COMPLETE", "pilot_gate_pass": True, "schema": "legacy"},
         sample,
@@ -1009,6 +1015,8 @@ def test_v2_gate_requires_complete_independent_event_and_row_reviews():
         candidates,
         events,
         rows,
+        event_gt,
+        row_gt,
     )
 
 
@@ -1028,8 +1036,349 @@ def test_h2_announcement_confirms_change_pair_and_exact_registration_date():
 
     assert evidence["company_name_change_flag"] == "YES"
     assert evidence["evidence_status"] == "CONFIRMED_NAME_CHANGE"
-    assert evidence["change_effective_date"] == "2024-08-13"
-    assert evidence["legal_name_at_year_end"] == "山东美晨科技股份有限公司"
+
+
+def test_ground_truth_templates_are_pending_blank_and_protected(tmp_path):
+    import pandas as pd
+    import pytest
+
+    from scripts.run_cninfo_legal_name_recovery_20260927 import (
+        _prepare_pilot_ground_truth_review,
+    )
+
+    events = pd.DataFrame([{"event_id": "EVT-1", "firm_key": "SSE:1:2000-01-01"}])
+    rows = pd.DataFrame([{"firm_key": "SSE:1:2000-01-01", "year": 2024}])
+    _prepare_pilot_ground_truth_review(tmp_path, events, rows)
+    event_gt = pd.read_csv(
+        tmp_path / "pilot_change_event_ground_truth.csv", dtype=str, keep_default_na=False
+    )
+    row_gt = pd.read_csv(
+        tmp_path / "pilot_change_row_ground_truth.csv", dtype=str, keep_default_na=False
+    )
+    assert event_gt.loc[0, "review_status"] == "PENDING"
+    assert event_gt.loc[0, "review_previous_legal_name"] == ""
+    assert row_gt.loc[0, "review_status"] == "PENDING"
+    assert row_gt.loc[0, "review_change_flag"] == ""
+    with pytest.raises(FileExistsError, match="GROUND_TRUTH_RESET_REQUIRES_EXPLICIT_FLAG"):
+        _prepare_pilot_ground_truth_review(tmp_path, events, rows)
+    _prepare_pilot_ground_truth_review(tmp_path, events, rows, force_reset=True)
+    event_gt = pd.read_csv(
+        tmp_path / "pilot_change_event_ground_truth.csv", dtype=str, keep_default_na=False
+    )
+    assert event_gt.loc[0, "review_status"] == "PENDING"
+
+
+def test_parser_predictions_contain_no_automatic_review_fields():
+    import pandas as pd
+
+    from scripts.run_cninfo_legal_name_recovery_20260927 import (
+        _build_pilot_change_artifacts,
+    )
+
+    audit = pd.DataFrame([_event_row()])
+    audit["legal_name_at_year_end"] = "乙股份有限公司"
+    audit["legal_name_current_in_report"] = "乙股份有限公司"
+    audit["legal_name_previous"] = "甲股份有限公司"
+    audit["legal_name_new"] = "乙股份有限公司"
+    audit["audited_legal_name"] = "乙股份有限公司"
+    audit["company_name_change_flag"] = "YES"
+    audit["change_effective_date"] = "2024-06-10"
+    audit["date_precision"] = "exact_date"
+    audit["change_evidence_url"] = "https://official.test/notice.pdf"
+    audit["change_evidence_tier"] = "H2"
+    statuses = pd.DataFrame(
+        [
+            {
+                "firm_key": audit.loc[0, "firm_key"],
+                "year": 2024,
+                "source_url": "https://official.test/report.pdf",
+            }
+        ]
+    )
+    candidates, events, rows = _build_pilot_change_artifacts(audit, statuses)
+    assert not any(str(column).startswith(("manual_", "review_")) for column in events.columns)
+    assert not any(str(column).startswith(("manual_", "review_")) for column in rows.columns)
+    assert not any(
+        str(column).startswith(("manual_", "review_", "audited_", "human_"))
+        or column == "abbreviation_false_positive"
+        for column in candidates.columns
+    )
+
+
+def test_v2_metrics_compare_predictions_only_to_separate_ground_truth():
+    import pandas as pd
+
+    from scripts.run_cninfo_legal_name_recovery_20260927 import (
+        _build_v2_strict_pilot_summary,
+    )
+
+    sample = pd.DataFrame({"firm_key": [f"F{i}" for i in range(92)]})
+    target_rows = [{"firm_key": f"F{i}", "year": 2020 + j} for i in range(92) for j in range(5)]
+    target_rows.append({"firm_key": "F0", "year": 2025})
+    targets = pd.DataFrame(target_rows)
+    audit = pd.DataFrame(
+        {
+            "firm_key": targets.firm_key,
+            "year": targets.year,
+            "legal_name_current_in_report": "甲股份有限公司",
+            "legal_name_at_year_end": "甲股份有限公司",
+            "audited_legal_name": "甲股份有限公司",
+            "human_audit_status": "PASS",
+            "abbreviation_false_positive": "0",
+        }
+    )
+    candidates = pd.DataFrame([{"firm_key": "SSE:1:2000-01-01", "year": 2024}])
+    events = pd.DataFrame(
+        [
+            {
+                "event_id": "EVT-1",
+                "firm_key": "SSE:1:2000-01-01",
+                "parser_previous_legal_name": "甲股份有限公司",
+                "parser_new_legal_name": "乙股份有限公司",
+                "parser_effective_date": "2024-06-10",
+                "parser_date_precision": "exact_date",
+            }
+        ]
+    )
+    rows = pd.DataFrame(
+        [
+            {
+                "firm_key": "SSE:1:2000-01-01",
+                "year": 2024,
+                "candidate_reason": "parser_old_new_name_pair",
+                "proposed_event_id": "EVT-1",
+                "parser_change_flag": "YES",
+                "parser_legal_name_at_year_end": "乙股份有限公司",
+                "parser_previous_name": "甲股份有限公司",
+                "parser_new_name": "乙股份有限公司",
+            }
+        ]
+    )
+    event_gt = pd.DataFrame(
+        [
+            {
+                "event_id": "EVT-1",
+                "review_previous_legal_name": "甲股份有限公司",
+                "parser_previous_legal_name": "甲股份有限公司",
+                "parser_new_legal_name": "乙股份有限公司",
+                "parser_effective_date": "2024-06-10",
+                "parser_date_precision": "exact_date",
+                "review_new_legal_name": "乙股份有限公司",
+                "review_effective_date": "2024-06-10",
+                "review_date_precision": "exact_date",
+                "review_event_is_real": "YES",
+                "review_status": "PASS",
+                "reviewer_evidence_url": "https://official.test/e.pdf",
+                "reviewer_evidence_title": "公告",
+                "reviewer_evidence_excerpt": "法人名称变更",
+            }
+        ]
+    )
+    row_gt = pd.DataFrame(
+        [
+            {
+                "firm_key": "SSE:1:2000-01-01",
+                "year": "2024",
+                "candidate_reason": "parser_old_new_name_pair",
+                "proposed_event_id": "EVT-1",
+                "parser_change_flag": "YES",
+                "parser_legal_name_at_year_end": "乙股份有限公司",
+                "parser_previous_name": "甲股份有限公司",
+                "parser_new_name": "乙股份有限公司",
+                "review_event_id": "EVT-1",
+                "review_is_change_related": "YES",
+                "review_change_flag": "YES",
+                "review_legal_name_at_year_end": "乙股份有限公司",
+                "review_previous_name": "甲股份有限公司",
+                "review_new_name": "乙股份有限公司",
+                "exclusion_reason": "",
+                "review_status": "PASS",
+                "reviewer_evidence_url": "https://official.test/r.pdf",
+                "reviewer_evidence_title": "年报",
+                "reviewer_evidence_excerpt": "公司中文名称",
+            }
+        ]
+    )
+    summary = _build_v2_strict_pilot_summary(
+        sample, targets, audit, candidates, events, rows, event_gt, row_gt
+    )
+    assert summary["pilot_gate_pass"] is True
+    wrong = event_gt.assign(review_previous_legal_name="错误旧名称")
+    summary = _build_v2_strict_pilot_summary(
+        sample, targets, audit, candidates, events, rows, wrong, row_gt
+    )
+    assert summary["metrics"]["event_old_name_accuracy"] == 0
+    assert summary["pilot_gate_pass"] is False
+    wrong_new = event_gt.assign(review_new_legal_name="错误新名称")
+    wrong_date = event_gt.assign(review_effective_date="2024-06-11")
+    assert (
+        _build_v2_strict_pilot_summary(
+            sample, targets, audit, candidates, events, rows, wrong_new, row_gt
+        )["metrics"]["event_new_name_accuracy"]
+        == 0
+    )
+    assert (
+        _build_v2_strict_pilot_summary(
+            sample, targets, audit, candidates, events, rows, wrong_date, row_gt
+        )["metrics"]["event_effective_date_accuracy"]
+        == 0
+    )
+    wrong_year_end = row_gt.assign(review_legal_name_at_year_end="错误年末名称")
+    wrong_flag = row_gt.assign(review_change_flag="NO")
+    assert (
+        _build_v2_strict_pilot_summary(
+            sample, targets, audit, candidates, events, rows, event_gt, wrong_year_end
+        )["metrics"]["firm_year_year_end_name_accuracy"]
+        == 0
+    )
+    assert (
+        _build_v2_strict_pilot_summary(
+            sample, targets, audit, candidates, events, rows, event_gt, wrong_flag
+        )["metrics"]["firm_year_change_flag_accuracy"]
+        == 0
+    )
+    assert not _build_v2_strict_pilot_summary(
+        sample,
+        targets,
+        audit,
+        candidates,
+        events,
+        rows,
+        event_gt.assign(review_status="PENDING"),
+        row_gt,
+    )["event_review_complete"]
+    assert not _build_v2_strict_pilot_summary(
+        sample,
+        targets,
+        audit,
+        candidates,
+        events,
+        rows,
+        event_gt.assign(reviewer_evidence_url=""),
+        row_gt,
+    )["event_review_complete"]
+    assert not _build_v2_strict_pilot_summary(
+        sample,
+        targets,
+        audit,
+        candidates,
+        events,
+        rows,
+        event_gt.assign(reviewer_evidence_excerpt=""),
+        row_gt,
+    )["event_review_complete"]
+    non_event_without_reason = row_gt.assign(
+        proposed_event_id="",
+        review_event_id="",
+        review_is_change_related="NO",
+        exclusion_reason="",
+    )
+    non_event_prediction = rows.assign(proposed_event_id="")
+    assert not _build_v2_strict_pilot_summary(
+        sample,
+        targets,
+        audit,
+        candidates,
+        events,
+        non_event_prediction,
+        event_gt,
+        non_event_without_reason,
+    )["firm_year_review_complete"]
+
+
+def test_v2_gate_rejects_pending_or_evidenceless_ground_truth():
+    import pandas as pd
+
+    from scripts.run_cninfo_legal_name_recovery_20260927 import (
+        _review_is_complete,
+    )
+
+    required = ["review_status", "reviewer_evidence_url", "reviewer_evidence_excerpt"]
+    assert not _review_is_complete(pd.DataFrame(), required)
+    pending = pd.DataFrame(
+        [
+            {
+                "review_status": "PENDING",
+                "reviewer_evidence_url": "https://official.test/a.pdf",
+                "reviewer_evidence_excerpt": "证据摘录",
+            }
+        ]
+    )
+    assert not _review_is_complete(pending, required)
+    missing_url = pending.assign(review_status="PASS", reviewer_evidence_url="")
+    assert not _review_is_complete(missing_url, required)
+    missing_excerpt = pending.assign(review_status="PASS", reviewer_evidence_excerpt="")
+    assert not _review_is_complete(missing_excerpt, required)
+    unresolved = pending.assign(review_status="UNRESOLVED")
+    assert not _review_is_complete(unresolved, required)
+
+
+def test_finalizing_predictions_never_overwrites_existing_ground_truth(tmp_path, monkeypatch):
+    import pandas as pd
+
+    import scripts.run_cninfo_legal_name_recovery_20260927 as recovery
+
+    audit = pd.DataFrame([_event_row()])
+    audit["legal_name_current_in_report"] = "乙股份有限公司"
+    audit["legal_name_at_year_end"] = "乙股份有限公司"
+    audit["audited_legal_name"] = "乙股份有限公司"
+    audit["human_audit_status"] = "PASS"
+    audit["abbreviation_false_positive"] = "0"
+    statuses = pd.DataFrame(
+        [
+            {
+                "firm_key": audit.loc[0, "firm_key"],
+                "year": 2024,
+                "source_url": "https://official.test/report.pdf",
+            }
+        ]
+    )
+    _, events, predictions = recovery._build_pilot_change_artifacts(audit, statuses)
+    recovery._prepare_pilot_ground_truth_review(tmp_path, events, predictions)
+    event_path = tmp_path / "pilot_change_event_ground_truth.csv"
+    row_path = tmp_path / "pilot_change_row_ground_truth.csv"
+    event_gt = pd.read_csv(event_path, dtype=str, keep_default_na=False)
+    row_gt = pd.read_csv(row_path, dtype=str, keep_default_na=False)
+    event_gt.loc[0, "reviewer_evidence_title"] = "manual event sentinel"
+    row_gt.loc[0, "reviewer_evidence_title"] = "manual row sentinel"
+    event_gt.to_csv(event_path, index=False, encoding="utf-8-sig")
+    row_gt.to_csv(row_path, index=False, encoding="utf-8-sig")
+    sample = pd.DataFrame({"firm_key": [f"F{i}" for i in range(92)]})
+    targets = pd.DataFrame(
+        [{"firm_key": f"F{i}", "year": year} for i in range(92) for year in range(2020, 2025)]
+        + [{"firm_key": "F0", "year": 2025}]
+    )
+    sample.to_csv(tmp_path / "pilot_sample.csv", index=False)
+    targets.to_csv(tmp_path / "pilot_firm_year_targets.csv", index=False)
+    audit.to_csv(tmp_path / "pilot_context_audit.csv", index=False)
+    statuses.to_csv(tmp_path / "pilot_status.csv", index=False)
+    monkeypatch.setattr(recovery, "OUTPUT", tmp_path)
+    recovery._finalize_pilot_change_events()
+    event_after = pd.read_csv(event_path, dtype=str, keep_default_na=False)
+    row_after = pd.read_csv(row_path, dtype=str, keep_default_na=False)
+    assert event_after.loc[0, "reviewer_evidence_title"] == "manual event sentinel"
+    assert row_after.loc[0, "reviewer_evidence_title"] == "manual row sentinel"
+
+
+def test_pilot_pass_flag_alone_cannot_authorize_full(tmp_path, monkeypatch):
+    import pandas as pd
+    import pytest
+
+    import scripts.run_cninfo_legal_name_recovery_20260927 as recovery
+
+    targets = pd.DataFrame(
+        [{"firm_key": f"F{i}", "year": year} for i in range(92) for year in range(2020, 2025)]
+        + [{"firm_key": "F0", "year": 2025}]
+    )
+    monkeypatch.setattr(recovery, "OUTPUT", tmp_path)
+    monkeypatch.setattr(recovery, "_firm_year_targets", lambda: (targets, targets))
+    monkeypatch.setattr(recovery, "_source_records", lambda: [])
+    pd.DataFrame(
+        [{"schema": "cnipa_strict_pilot_gate_v1", "status": "STRICT_PILOT_GATE_PASS"}]
+    ).to_json(tmp_path / "pilot_strict_gate_v2_summary.json", orient="records")
+    args = type("Args", (), {"stage": "full", "pilot_pass": True})()
+    with pytest.raises(ValueError, match="CANONICAL_STRICT_PILOT_GATE_INPUTS_MISSING"):
+        recovery._run(args)
 
 
 def test_h2_announcement_rejects_a_notice_without_both_expected_names():

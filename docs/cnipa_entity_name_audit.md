@@ -72,8 +72,16 @@ R3 的本地 v1 摘要不构成 R3E 的 Gate 输入，也不授权 Full。
 
 300237/2024 的官方公告确认“山东美晨生态环境股份有限公司→山东美晨科技股份有限公司”，工商登记日为 2024-08-13；600936/2025 的官方公告确认“广西广播电视信息网络股份有限公司→广西北投科技股份有限公司”，登记日为 2025-12-31。300237 两份公告及 600936 公告共进行 3 次定点 H2 官方来源复核。历史 5 cases / 3-of-5、legacy CSV 的 6 条 review rows、新 canonical 6 distinct events / 12 event-linked rows / 14 candidate rows 分属不同口径，不能互作同一分母。
 
-新 ignored 文件为 `pilot_change_candidate_rows.csv`、`pilot_change_event_roster.csv`、`pilot_change_row_review.csv`；v2 摘要 schema 为 `cnipa_strict_pilot_gate_v2`。事件旧名、新名、可核实精确日期准确率均为 1.0；事件相关 firm-year change flag 与 year-end legal name 准确率均为 1.0；legal-name precision 为 1.0，证券简称误判 0，人工未审 0，未决候选/事件均为 0。v1、legacy summary 和 `--pilot-pass` 单独均不能授权 Full；Full 仍需 v2 与三份指纹匹配审核文件。本轮没有启动 Full 或 targeted refresh，Full evidence cache 保持不变。
+R3E 曾记录的行级准确率与 legal-name precision 1.0 不构成独立审计结果：当时 `manual_*` / `review_*` 字段由 parser 预测直接复制，再与同源预测比较，属于自我比较。该结论已由 R3E-R 独立复核取代，不得作为 Full 授权依据。
+
+## 4.4A-R3E-R 独立 Pilot Ground-Truth 复核
+
+固定 Pilot 仍为 seed `20260927`、92 家、461 个 firm-year；不改变 14 条候选行及 6 个事件的冻结总体。预测产物与独立 ground-truth CSV 已分离，逐项审核了全部 6 个事件和 14 条行级记录，并将候选、事件 roster、行级预测及两份 ground truth 的指纹绑定到 strict v2 摘要。两条 300365 记录明确判为 `NOT_A_LEGAL_NAME_CHANGE_EVENT`：2020 年报主体名称正常；2021 解析文本来自成都分公司释义，不是上市主体名称。
+
+独立复核结果：事件旧名、新名、精确日期准确率分别为 1.0、1.0、1.0（精确日期分母 5；事件日期精度准确率 1.0）；14 条行级候选的 legal-name precision 为 13/14（0.9286），change-flag accuracy 为 12/14（0.8571），year-end legal-name accuracy 为 13/14（0.9286）。证券简称误判 0，未审事件/行 0，未决候选/事件 0。误差来自 300365 的两条解析结果：2020 change flag 为 UNKNOWN；2021 change flag 为 UNKNOWN 且年末解析名错误地取到分公司释义。没有排除错误行来抬高指标。最终 `PILOT_GATE_NOT_PASSED`，Full 不获授权。
+
+v1、legacy summary 与 `--pilot-pass` 单独不能授权 Full。当前 Full 授权校验必须同时匹配固定样本/目标/来源、候选集、事件 roster、行级预测以及事件和行级 ground-truth 共五类相关指纹。Full evidence cache 未改动；本轮没有启动 Full、targeted refresh 或任何专利流程。
 
 CNIPA 全范围状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`：主窗口的 353 个时间关系未决和 695 行缺少年报法人名称尚待后续处理；`zero_semantics` / `missing_semantics` 仍为 pending。verified historical names 仍为 3，unique query names 仍为 5,269。未访问 CNIPA 专利系统，未检索或下载专利。
 
-R3E 全库 pytest：311 passed；Ruff：`All checks passed!`；uv 依赖检查：116 packages compatible；push hygiene：PASS。
+R3E-R 目标测试：48 passed。全库验证及推送卫生结果以 R3E-R 本轮最终检查记录为准。
