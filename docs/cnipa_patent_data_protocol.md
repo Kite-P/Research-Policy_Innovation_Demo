@@ -62,6 +62,10 @@ R3G 仍用 R3F 原 parser 输出重算固定 14 行，不删除候选退出行�
 
 当前 Full 主窗口仍为 23,448 行，键集合与正式 primary target 完全一致。coverage 重新分层得到 1,048 个 gap（353 temporal unresolved 与 695 no-name 互斥）及 22,751 条旧 parser 成功缓存风险记录。详细聚合、分层规则和诊断 Pilot 结果见 `docs/cnipa_full_gap_diagnosis.md`。本轮仅用本地数据诊断，没有网络请求、Full refresh 或专利系统访问；diagnostic Pilot manifest 仅生成未执行。Full 名称范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`，固定 Pilot Gate 为 `STRICT_PILOT_GATE_PASS`，zero/missing semantics 继续 pending。
 
+## 4.4A-R4B 定向诊断结果
+
+R4B 沿用冻结 94 行清单；采集达到 120 次守门预算后停止，只有部分官方年报材料完成下载和文本提取，独立审核 denominator 为 0，最终状态 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。没有 Full 写回或专利访问；v3 Pilot Gate 仍 PASS，但不代表名称范围 Gate 通过。后续只可按 R4C ignored 计划另行审批，不得把本轮部分结果外推为 Full 修复依据。
+
 ## Local parser output
 
 `read_cnipa_export` 支持 XLSX 和 XML，并标准化为：

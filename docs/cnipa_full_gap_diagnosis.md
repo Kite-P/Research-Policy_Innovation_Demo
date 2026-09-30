@@ -2,9 +2,9 @@
 
 ## 本轮范围与状态
 
-4.4A-R4A 只读取本地 Full 状态、缓存、Historical Province 来源元数据、entity-year coverage 与既有名称证据；不发起网络请求、不下载或解析 PDF、不刷新 Full、不访问 CNIPA 专利系统。企业级诊断清单和诊断 Pilot manifest 仅保存在 ignored 的 `results/cnipa_full_gap_diagnosis/`，不纳入版本控制。
+4.4A-R4A 的离线诊断状态见下文历史记录。随后 R4B 按冻结的 94-row manifest 执行有上限的来源诊断，但在请求预算守门计数达到 120 后停止；本轮只得到部分 PDF/TXT，独立 source-grounded denominator 为 0。当前状态为 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`，不可据此启动批量修复。企业级材料仅保存在 ignored 的 `results/cnipa_full_gap_diagnosis/r4b_20260930/`。
 
-诊断状态为 `FULL_NAME_DIAGNOSIS_READY_FOR_TARGETED_PILOT`。这只表示缺口与旧缓存风险已足以支持下一步小规模诊断 Pilot，不表示名称范围 Gate 已通过。固定 Pilot v3 Gate 仍为 `STRICT_PILOT_GATE_PASS`；全范围状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；`zero_semantics` 与 `missing_semantics` 仍为 pending。
+R4A 当时的离线诊断状态为 `FULL_NAME_DIAGNOSIS_READY_FOR_TARGETED_PILOT`，现已由 R4B 部分执行结果更新：`TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。固定 Pilot v3 Gate 仍为 `STRICT_PILOT_GATE_PASS`；全范围状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；`zero_semantics` 与 `missing_semantics` 仍为 pending。R4B 详情见 `docs/cnipa_targeted_diagnostic_pilot.md`。
 
 ## Full baseline 与覆盖分区
 

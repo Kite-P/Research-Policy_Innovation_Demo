@@ -129,3 +129,9 @@ evidence-state validator 现在逐行按审核事实重推 `review_expected_pars
 旧 parser revision 的成功缓存实际为 22,751 行，全部分层：HIGH 34 行/18 家，MEDIUM 2,155 行/612 家，LOW 20,562 行/4,830 家，`INSUFFICIENT_LOCAL_EVIDENCE` 为 0。HIGH 的 34 行是释义/分支/子公司等 R3F-like 聚合风险。LOW 仅指现有元数据暂未发现同类风险，不代表已证明正确；风险规则与结果详见 `docs/cnipa_full_gap_diagnosis.md`。
 
 确定性诊断 Pilot seed `20260930` 生成 94 个 firm-year、86 家企业，覆盖 9/9 gap 子类及所有实际非空 stale 风险层；包含 LOW negative controls。状态为 `FULL_NAME_DIAGNOSIS_READY_FOR_TARGETED_PILOT`，不改变 `STRICT_PILOT_GATE_PASS`、`CNIPA_ENTITY_NAME_NEEDS_FIX`、`zero_semantics=pending` 或 `missing_semantics=pending`。Pilot 未执行。本轮网络请求为 0，Full/status/state、cache、coverage 与全部 frozen Pilot/GT artifacts 的前后哈希一致；企业级明细仅在 ignored results。
+
+## 4.4A-R4B 定向诊断 Pilot（部分执行）
+
+沿用冻结的 94-row / 86-firm R4A manifest，指纹与 R4A 一致。预算守门达到 120 后即停止；30 份 PDF 收到 HTTP 200 并完成 TXT，5 个 index 样本未找到可选报告，其余样本未完成。已取回文件离线解析得到 24 行 `CONFIRMED_YEAR_END_NAME_ONLY`、2 行 `CONFIRMED_NO_CHANGE`、4 行 `LEGAL_NAME_EXTRACTION_FAILED`；其中至少 2 份 PDF 是年报摘要，不作为完整 H1 年报。
+
+独立 source review 与 parser prediction 分离。当前 PASS denominator=0；84 行为 `SOURCE_UNRESOLVED`，10 个未联网控制为 `LOCAL_CONTROL_ONLY`，source-grounded accuracy 不可计算。HIGH/MEDIUM/LOW 各抽样 10 行，但未据此推断全体错误率或授权批量刷新。状态为 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。Full/status/state/cache、coverage、frozen GT 和 R4A 输入前后哈希一致。请求上限已用尽，本轮未继续请求。固定 Gate 仍为 `STRICT_PILOT_GATE_PASS`；整体仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；zero/missing semantics 仍 pending。汇总见 `docs/cnipa_targeted_diagnostic_pilot.md`。
