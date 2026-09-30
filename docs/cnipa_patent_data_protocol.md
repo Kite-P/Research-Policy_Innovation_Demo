@@ -58,6 +58,10 @@ R3G 仍用 R3F 原 parser 输出重算固定 14 行，不删除候选退出行�
 
 当完整 Full 状态和 23,448 键集合已完成，但成功缓存仍是旧 parser revision 时，普通 `--resume` 会硬性阻止宽范围重解析。对现有缓存的只读预检检测到 22,751 条旧 revision 成功记录，因此当前普通宽范围 resume 会被阻断。定向操作必须提供 `--targeted-refresh-manifest`（`firm_key,year,reason`），并通过精确目标子集、唯一键、非空原因和原 23,448 行基线校验。定向写回只替换 manifest 键，输出目标行前后哈希，并要求非目标行指纹完全相同；该机制仅为后续授权运行准备，本轮不运行任何 refresh。
 
+## 4.4A-R4A 离线诊断状态
+
+当前 Full 主窗口仍为 23,448 行，键集合与正式 primary target 完全一致。coverage 重新分层得到 1,048 个 gap（353 temporal unresolved 与 695 no-name 互斥）及 22,751 条旧 parser 成功缓存风险记录。详细聚合、分层规则和诊断 Pilot 结果见 `docs/cnipa_full_gap_diagnosis.md`。本轮仅用本地数据诊断，没有网络请求、Full refresh 或专利系统访问；diagnostic Pilot manifest 仅生成未执行。Full 名称范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`，固定 Pilot Gate 为 `STRICT_PILOT_GATE_PASS`，zero/missing semantics 继续 pending。
+
 ## Local parser output
 
 `read_cnipa_export` 支持 XLSX 和 XML，并标准化为：

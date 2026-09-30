@@ -119,3 +119,13 @@ R3G 最终验证：pytest 326 passed；Ruff `All checks passed!`；`uv pip check
 evidence-state validator 现在逐行按审核事实重推 `review_expected_parser_flag`，并拒绝目标年内/外事件事实矛盾或事实与标签不一致。冻结 event/row/evidence-state GT 只读；R3G v3 PASS 与固定 14 行分母不变。
 
 已加入 Full 安全前置检查：完整 23,448 行基线、精确 manifest 子集、非空原因、无重复/越界键、manifest fingerprint，以及成功缓存旧 parser revision 时普通宽范围 resume 硬阻断。对现有本地 Full 状态作只读预检，确认 23,448/23,448 键完整，普通宽范围 resume 被拦截，检测到 22,751 条旧 revision 成功缓存。定向写回只替换 manifest 键，记录目标行前后指纹并验证非目标行指纹完全不变。此轮只实现和测试安全逻辑，不执行 Full、定向抓取或网络请求；实体范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`，zero/missing semantics 仍 pending。
+
+## 4.4A-R4A Full 缺口与旧解析成功缓存离线分层
+
+对正式 2020—2024 主窗口重新逐行计算八类 coverage，23,448 行与当前 primary target 键集合完全一致且唯一。分类总数为 22,256 个年末名称、126 个已确认变更、18 个无变更、353 个时间关系未决、444 个报告未找到、238 个名称提取失败、13 个文本提取失败、0 个来源封锁。353 与 695 个 no-name 键互斥，gap 并集精确为 1,048。entity-year coverage 另含 5,089 条 2025 audit 行，不属于 Full 主窗口，未并入分母。
+
+1,048 gap 分成 9 个非空子类。时间未决主要是 349 行有当前/年末名称但无事件对或日期；报告缺失类为 253 行有历史来源记录但无 URL、191 行位于挂牌/退市边界年；名称提取失败类为 180 行有文本但无匹配标签、58 行报告标题/年份正常但发行人栏目版式未匹配；13 条 `REPORT_FETCH_FAILED` 的原始失败原因为 `pdftotext` 空文本/过短，属于被误归类的文本提取失败。无 URL 不解释为官方报告不存在，缺失 HTTP/PDF 元数据也不推断为下载失败。
+
+旧 parser revision 的成功缓存实际为 22,751 行，全部分层：HIGH 34 行/18 家，MEDIUM 2,155 行/612 家，LOW 20,562 行/4,830 家，`INSUFFICIENT_LOCAL_EVIDENCE` 为 0。HIGH 的 34 行是释义/分支/子公司等 R3F-like 聚合风险。LOW 仅指现有元数据暂未发现同类风险，不代表已证明正确；风险规则与结果详见 `docs/cnipa_full_gap_diagnosis.md`。
+
+确定性诊断 Pilot seed `20260930` 生成 94 个 firm-year、86 家企业，覆盖 9/9 gap 子类及所有实际非空 stale 风险层；包含 LOW negative controls。状态为 `FULL_NAME_DIAGNOSIS_READY_FOR_TARGETED_PILOT`，不改变 `STRICT_PILOT_GATE_PASS`、`CNIPA_ENTITY_NAME_NEEDS_FIX`、`zero_semantics=pending` 或 `missing_semantics=pending`。Pilot 未执行。本轮网络请求为 0，Full/status/state、cache、coverage 与全部 frozen Pilot/GT artifacts 的前后哈希一致；企业级明细仅在 ignored results。
