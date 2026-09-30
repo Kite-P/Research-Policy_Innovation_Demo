@@ -132,6 +132,6 @@ evidence-state validator 现在逐行按审核事实重推 `review_expected_pars
 
 ## 4.4A-R4B 定向诊断 Pilot（部分执行）
 
-沿用冻结的 94-row / 86-firm R4A manifest，指纹与 R4A 一致。预算守门达到 120 后即停止；30 份 PDF 收到 HTTP 200 并完成 TXT，5 个 index 样本未找到可选报告，其余样本未完成。已取回文件离线解析得到 24 行 `CONFIRMED_YEAR_END_NAME_ONLY`、2 行 `CONFIRMED_NO_CHANGE`、4 行 `LEGAL_NAME_EXTRACTION_FAILED`；其中至少 2 份 PDF 是年报摘要，不作为完整 H1 年报。
+沿用冻结的 94-row / 86-firm R4A manifest，指纹与 R4A 一致。预算守门达到 120 后即停止；30 份 PDF 收到 HTTP 200 并完成 TXT，27 行通过官方来源/发行人/年度/完整报告身份核验，5 个 index 样本未找到可选报告，其余样本未完成。已取回文件离线解析得到 24 行 `CONFIRMED_YEAR_END_NAME_ONLY`、2 行 `CONFIRMED_NO_CHANGE`、4 行 `LEGAL_NAME_EXTRACTION_FAILED`；2 份 PDF 是年报摘要，另 1 份发行人身份不符。
 
-独立 source review 与 parser prediction 分离。当前 PASS denominator=0；84 行为 `SOURCE_UNRESOLVED`，10 个未联网控制为 `LOCAL_CONTROL_ONLY`，source-grounded accuracy 不可计算。HIGH/MEDIUM/LOW 各抽样 10 行，但未据此推断全体错误率或授权批量刷新。状态为 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。Full/status/state/cache、coverage、frozen GT 和 R4A 输入前后哈希一致。请求上限已用尽，本轮未继续请求。固定 Gate 仍为 `STRICT_PILOT_GATE_PASS`；整体仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；zero/missing semantics 仍 pending。汇总见 `docs/cnipa_targeted_diagnostic_pilot.md`。
+独立 source review 与 parser prediction 分离。17 行 PASS，67 行为 `SOURCE_UNRESOLVED`，10 个未联网控制为 `LOCAL_CONTROL_ONLY`。source-grounded issuer-name accuracy=16/17、year-end-name accuracy=16/17、evidence-state accuracy=17/17，仅适用于已审核子样本。HIGH 抽样 10 行中 7 行审核通过，old wrong=7、current corrected=7、current still wrong=0，3 行 unresolved；MEDIUM 10 行均通过来源审核，old wrong=1、current corrected=0、current still wrong=1。此结果不授权批量刷新。状态为 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。Full/status/state/cache、coverage、frozen GT 和 R4A 输入前后哈希一致。请求上限已用尽，本轮未继续请求。固定 Gate 仍为 `STRICT_PILOT_GATE_PASS`；整体仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；zero/missing semantics 仍 pending。汇总见 `docs/cnipa_targeted_diagnostic_pilot.md`。

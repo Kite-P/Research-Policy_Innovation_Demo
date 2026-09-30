@@ -195,10 +195,10 @@ def test_source_metrics_exclude_controls_unresolved_and_blocked_rows():
                 "firm_key": "A",
                 "year": 2020,
                 "review_status": "PASS",
-                "source_is_official": True,
-                "source_is_correct_issuer": True,
-                "source_is_correct_year": True,
-                "source_is_full_annual_report": True,
+                "source_is_official": "True",
+                "source_is_correct_issuer": "True",
+                "source_is_correct_year": "True",
+                "source_is_full_annual_report": "True",
                 "review_legal_name_at_year_end": "A Inc",
                 "review_change_evidence_state": "NO",
             },
@@ -330,6 +330,18 @@ def test_review_template_has_no_parser_derived_review_fields():
     assert review.review_status.tolist() == ["PENDING"]
     assert review.review_legal_name_at_year_end.tolist() == [""]
     assert review.source_is_official.tolist() == [""]
+
+
+def test_existing_independent_review_is_preserved_without_key_drift(tmp_path):
+    predictions = pd.DataFrame([{"firm_key": "F", "year": 2023}])
+    review = pilot.build_review_template(predictions)
+    review.loc[0, "review_status"] = "PASS"
+    review.loc[0, "review_legal_name_at_year_end"] = "source-based review"
+    path = tmp_path / "review.csv"
+    review.to_csv(path, index=False)
+    loaded = pilot.load_or_create_independent_review(predictions, path)
+    assert loaded.loc[0, "review_status"] == "PASS"
+    assert loaded.loc[0, "review_legal_name_at_year_end"] == "source-based review"
 
 
 def test_mixed_subfamily_mechanisms_are_not_promoted_to_bulk_repair():

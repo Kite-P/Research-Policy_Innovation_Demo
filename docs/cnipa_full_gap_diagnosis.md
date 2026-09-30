@@ -2,7 +2,7 @@
 
 ## 本轮范围与状态
 
-4.4A-R4A 的离线诊断状态见下文历史记录。随后 R4B 按冻结的 94-row manifest 执行有上限的来源诊断，但在请求预算守门计数达到 120 后停止；本轮只得到部分 PDF/TXT，独立 source-grounded denominator 为 0。当前状态为 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`，不可据此启动批量修复。企业级材料仅保存在 ignored 的 `results/cnipa_full_gap_diagnosis/r4b_20260930/`。
+4.4A-R4A 的离线诊断状态见下文历史记录。随后 R4B 按冻结的 94-row manifest 执行有上限的来源诊断，但在预算守门计数达到 120 后停止。30 份 PDF/TXT 已取得，其中 17 个 stale-success HIGH/MEDIUM 样本通过独立 source review；其余证据不完整，不能据此启动批量修复。当前状态为 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。企业级材料仅保存在 ignored 的 `results/cnipa_full_gap_diagnosis/r4b_20260930/`。
 
 R4A 当时的离线诊断状态为 `FULL_NAME_DIAGNOSIS_READY_FOR_TARGETED_PILOT`，现已由 R4B 部分执行结果更新：`TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。固定 Pilot v3 Gate 仍为 `STRICT_PILOT_GATE_PASS`；全范围状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；`zero_semantics` 与 `missing_semantics` 仍为 pending。R4B 详情见 `docs/cnipa_targeted_diagnostic_pilot.md`。
 

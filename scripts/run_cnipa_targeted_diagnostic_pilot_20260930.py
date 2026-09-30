@@ -230,6 +230,20 @@ def build_review_template(predictions: pd.DataFrame) -> pd.DataFrame:
     return template
 
 
+def load_or_create_independent_review(predictions: pd.DataFrame, review_path: Path) -> pd.DataFrame:
+    if not review_path.is_file():
+        return build_review_template(predictions)
+    reviews = pd.read_csv(review_path, dtype=str, keep_default_na=False)
+    keys = ["firm_key", "year"]
+    if reviews.duplicated(keys).any() or predictions.duplicated(keys).any():
+        raise ValueError("DUPLICATE_INDEPENDENT_REVIEW_KEY")
+    predicted_keys = set(zip(predictions.firm_key.astype(str), predictions.year.astype(str)))
+    review_keys = set(zip(reviews.firm_key.astype(str), reviews.year.astype(str)))
+    if review_keys != predicted_keys:
+        raise ValueError("INDEPENDENT_REVIEW_KEY_SET_MISMATCH")
+    return reviews
+
+
 def calculate_source_grounded_metrics(
     predictions: pd.DataFrame, reviews: pd.DataFrame
 ) -> dict[str, Any]:
@@ -246,10 +260,10 @@ def calculate_source_grounded_metrics(
         raise ValueError("PREDICTION_REVIEW_KEY_SET_MISMATCH")
     source_valid = (
         merged.review_status.eq("PASS")
-        & merged.source_is_official.eq(True)
-        & merged.source_is_correct_issuer.eq(True)
-        & merged.source_is_correct_year.eq(True)
-        & merged.source_is_full_annual_report.eq(True)
+        & merged.source_is_official.map(_bool)
+        & merged.source_is_correct_issuer.map(_bool)
+        & merged.source_is_correct_year.map(_bool)
+        & merged.source_is_full_annual_report.map(_bool)
     )
     excluded = {
         status: int(merged.review_status.eq(status).sum())
@@ -938,7 +952,7 @@ def run_pilot(*, resume: bool = False, root: Path = RUN_DIR) -> dict[str, Any]:
     ) - set(zip(frame.firm_key.astype(str), pd.to_numeric(frame.year).astype(int))):
         raise ValueError("OUTPUT_KEY_OUTSIDE_FROZEN_94")
     _atomic_frame(predictions, predictions_path)
-    reviews = build_review_template(predictions)
+    reviews = load_or_create_independent_review(predictions, root / "pilot_source_review.csv")
     # Completed independent reviews are not synthesized: keep template pending and distinct.
     _atomic_frame(reviews, root / "pilot_source_review_template.csv")
     _atomic_frame(pd.DataFrame(audit_rows), root / "source_acquisition_audit.csv")
@@ -1136,8 +1150,10 @@ def build_incomplete_review_and_r4c(*, root: Path = RUN_DIR) -> dict[str, Any]:
             ),
         }
         rows.append(row)
-    reviews = pd.DataFrame(rows)
-    _atomic_frame(reviews, root / "pilot_source_review.csv")
+    review_path = root / "pilot_source_review.csv"
+    if not review_path.exists():
+        _atomic_frame(pd.DataFrame(rows), review_path)
+    reviews = load_or_create_independent_review(predictions, review_path)
 
     failure_rows: list[dict[str, Any]] = []
     for _, prediction in predictions.iterrows():
@@ -1191,10 +1207,21 @@ def build_incomplete_review_and_r4c(*, root: Path = RUN_DIR) -> dict[str, Any]:
             )
             group_rows = manifest[(manifest.subfamily == group) & (manifest.risk_tier == tier)]
             group_keys = set(zip(group_rows.firm_key.astype(str), group_rows.year.astype(str)))
-            pred_group = predictions[
-                predictions.apply(lambda p: (str(p.firm_key), str(p.year)) in group_keys, axis=1)
+            source_rows = reviews[
+                reviews.apply(
+                    lambda review: (str(review.firm_key), str(review.year)) in group_keys,
+                    axis=1,
+                )
             ]
-            source_ok = int(pred_group.pdf_sha256.ne("").sum())
+            source_ok = int(
+                sum(
+                    _bool(review.source_is_official)
+                    and _bool(review.source_is_correct_issuer)
+                    and _bool(review.source_is_correct_year)
+                    and _bool(review.source_is_full_annual_report)
+                    for _, review in source_rows.iterrows()
+                )
+            )
             matrix.append(
                 {
                     "group": label,

@@ -64,7 +64,7 @@ R3G 仍用 R3F 原 parser 输出重算固定 14 行，不删除候选退出行�
 
 ## 4.4A-R4B 定向诊断结果
 
-R4B 沿用冻结 94 行清单；采集达到 120 次守门预算后停止，只有部分官方年报材料完成下载和文本提取，独立审核 denominator 为 0，最终状态 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。没有 Full 写回或专利访问；v3 Pilot Gate 仍 PASS，但不代表名称范围 Gate 通过。后续只可按 R4C ignored 计划另行审批，不得把本轮部分结果外推为 Full 修复依据。
+R4B 沿用冻结 94 行清单；采集达到 120 次守门预算后停止。30 份 PDF/TXT 中 27 行通过来源/发行人/年度/全文核验，17 行 stale-success HIGH/MEDIUM 样本进一步通过独立名称审核；其余行未决或仅作本地控制。已审核子样本的 issuer/year-end-name accuracy 均为 16/17，evidence-state accuracy 为 17/17。最终状态 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。没有 Full 写回或专利访问；v3 Pilot Gate 仍 PASS，但不代表名称范围 Gate 通过。后续只可按 R4C ignored 计划另行审批，不得把本轮部分结果外推为 Full 修复依据。
 
 ## Local parser output
 
