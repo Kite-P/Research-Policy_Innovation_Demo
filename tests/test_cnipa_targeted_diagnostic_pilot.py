@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import pytest
 import requests
@@ -120,6 +122,58 @@ def test_request_guard_records_source_block_and_refuses_every_later_request():
     with pytest.raises(pilot.SourceBlocked):
         guard.perform(transport, "GET", "https://static.cninfo.com.cn/b.pdf")
     assert state["request_count"] == 1
+
+
+def test_r4b2_guard_preserves_historical_budget_and_logs_response(tmp_path):
+    from src.cnipa_r4b2_audit import RequestAuditLog
+
+    state = {"r4b_guarded_attempts": 120, "r4b2_guarded_attempts": 0}
+    guard = pilot.RequestGuard(
+        state=state,
+        persist=lambda: None,
+        max_requests=120,
+        counter_key="r4b2_guarded_attempts",
+        audit_log=RequestAuditLog(tmp_path / "request_audit.jsonl"),
+    )
+    result = guard.perform(
+        lambda *_a, **_k: FakeResponse(200),
+        "GET",
+        "https://static.cninfo.com.cn/report.pdf",
+        audit_context={"firm_key": "F1", "year": 2022, "action": "H1"},
+    )
+    assert result.status_code == 200
+    assert state["r4b_guarded_attempts"] == 120
+    assert state["r4b2_guarded_attempts"] == 1
+    assert state["response_received_count"] == 1
+    assert len((tmp_path / "request_audit.jsonl").read_text().splitlines()) == 1
+
+
+def test_r4b2_guard_logs_transport_exception_and_consumes_budget(tmp_path):
+    from src.cnipa_r4b2_audit import RequestAuditLog
+
+    state = {"r4b2_guarded_attempts": 0}
+    guard = pilot.RequestGuard(
+        state=state,
+        persist=lambda: None,
+        audit_log=RequestAuditLog(tmp_path / "request_audit.jsonl"),
+        counter_key="r4b2_guarded_attempts",
+    )
+
+    def fail(*_args, **_kwargs):
+        raise TimeoutError("read timed out")
+
+    with pytest.raises(TimeoutError):
+        guard.perform(
+            fail,
+            "GET",
+            "https://static.cninfo.com.cn/report.pdf",
+            audit_context={"firm_key": "F1", "year": 2021, "action": "H1"},
+        )
+    assert state["r4b2_guarded_attempts"] == 1
+    assert state["transport_exception_count"] == 1
+    assert '"terminal_outcome": "TRANSPORT_EXCEPTION"' in (
+        tmp_path / "request_audit.jsonl"
+    ).read_text(encoding="utf-8")
 
 
 def test_resume_requires_identical_manifest_and_evidence_hash(tmp_path):
@@ -305,6 +359,19 @@ def test_pdf_body_is_not_scanned_as_challenge_text():
     )
 
 
+def test_pdf_provenance_is_recorded_before_text_extraction(tmp_path):
+    pdf_path = tmp_path / "evidence" / "abc" / "report.pdf"
+    pdf_path.parent.mkdir(parents=True)
+    pdf_path.write_bytes(b"%PDF synthetic")
+    prediction = {"pdf_sha256": "synthetic-hash"}
+
+    pilot._record_pdf_provenance(prediction, tmp_path, pdf_path)
+
+    assert prediction["_evidence_path"].replace("\\", "/") == "evidence/abc/report.pdf"
+    assert prediction["_evidence_sha256"] == "synthetic-hash"
+    assert prediction["_text_path"].replace("\\", "/") == "evidence/abc/report.txt"
+
+
 def test_request_guard_rejects_limits_above_hard_ceiling():
     with pytest.raises(ValueError, match="INVALID_REQUEST_GUARD_LIMITS"):
         pilot.RequestGuard(state={}, persist=lambda: None, max_requests=121)
@@ -388,6 +455,38 @@ def test_guarded_session_forces_redirects_off_without_duplicate_keyword(monkeypa
     assert seen["method"] == "GET"
 
 
+def test_r4b2_guard_audits_pre_dispatch_keyword_error_separately(tmp_path):
+    from src.cnipa_r4b2_audit import RequestAuditLog
+
+    audit_path = tmp_path / "request_audit.jsonl"
+    state = {"r4b2_guarded_attempt_count": 0}
+    guard = pilot.RequestGuard(
+        state=state,
+        persist=lambda: None,
+        audit_log=RequestAuditLog(audit_path),
+        counter_key="r4b2_guarded_attempt_count",
+    )
+
+    def bind_error(*_args, **_kwargs):
+        raise TypeError("got multiple values for keyword argument 'allow_redirects'")
+
+    with pytest.raises(TypeError, match="multiple values"):
+        guard.perform(
+            bind_error,
+            "GET",
+            "https://static.cninfo.com.cn/a.pdf",
+            audit_context={"firm_key": "SSE:600001:2000-01-01", "year": 2022},
+        )
+
+    row = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert row["terminal_outcome"] == "PRE_DISPATCH_OR_LOCAL_ERROR"
+    assert row["transport_called"] is False
+    assert row["budget_consumed"] is True
+    assert state["r4b2_guarded_attempt_count"] == 1
+    assert state["pre_dispatch_or_local_error_count"] == 1
+    assert state.get("transport_exception_count", 0) == 0
+
+
 def test_index_lookup_is_scoped_to_one_security_code_and_one_fiscal_year():
     class FakeClient:
         _stock_catalog = None
@@ -412,7 +511,108 @@ def test_index_lookup_is_scoped_to_one_security_code_and_one_fiscal_year():
         FakeClient(), stock_code="600001", report_year=2022
     )
     assert candidates == []
-    assert audit == []
+    assert audit[-1]["index_terminal_state"] == (
+        "INDEX_COMPLETE_RESULT_SET_NO_VALID_REPORT"
+    )
+    assert audit[-1]["pages_requested"] == 1
+
+
+def test_index_lookup_stops_after_four_pages_and_marks_cap_unresolved():
+    class FakeClient:
+        calls = 0
+
+        def stock_catalog(self):
+            return {"600001": "ORG1"}
+
+        def _request(self, method, url, **kwargs):
+            self.calls += 1
+            page = kwargs["data"]["pageNum"]
+
+            class JsonResponse:
+                @staticmethod
+                def json():
+                    return {"announcements": [], "totalpages": 8}
+
+            assert page == self.calls
+            return JsonResponse()
+
+    client = FakeClient()
+    candidates, audit = pilot.query_targeted_annual_report(
+        client, stock_code="600001", report_year=2022
+    )
+    assert candidates == []
+    assert client.calls == pilot.MAX_INDEX_PAGES_PER_FIRM_YEAR == 4
+    assert audit[-1]["index_terminal_state"] == "INDEX_PAGE_CAP_REACHED_UNRESOLVED"
+    assert audit[-1]["api_total_pages"] == 8
+
+
+def test_index_lookup_stops_paging_immediately_after_valid_candidate():
+    class FakeClient:
+        calls = 0
+
+        def stock_catalog(self):
+            return {"600001": "ORG1"}
+
+        def _request(self, method, url, **kwargs):
+            self.calls += 1
+
+            class JsonResponse:
+                @staticmethod
+                def json():
+                    return {
+                        "announcements": [
+                            {
+                                "announcementId": "A1",
+                                "announcementTitle": "甲公司2022年年度报告全文",
+                                "announcementTime": 1680000000,
+                                "adjunctUrl": "2023/a.pdf",
+                                "secCode": "600001",
+                                "orgId": "ORG1",
+                            }
+                        ],
+                        "totalpages": 8,
+                    }
+
+            return JsonResponse()
+
+    client = FakeClient()
+    candidates, audit = pilot.query_targeted_annual_report(
+        client, stock_code="600001", report_year=2022
+    )
+    assert len(candidates) == 1
+    assert client.calls == 1
+    assert audit[-1]["index_terminal_state"] == "INDEX_VALID_REPORT_FOUND"
+
+
+def test_index_page_cap_is_cumulative_across_resume():
+    class FakeClient:
+        r4b2_firm_key = "SSE:600001:2000-01-01"
+        r4b2_index_pages_used = {"SSE:600001:2000-01-01|2022": 3}
+        calls = []
+
+        def stock_catalog(self):
+            return {"600001": "ORG1"}
+
+        def _request(self, method, url, **kwargs):
+            page = kwargs["data"]["pageNum"]
+            self.calls.append(page)
+
+            class JsonResponse:
+                @staticmethod
+                def json():
+                    return {"announcements": [], "totalpages": 8}
+
+            return JsonResponse()
+
+    client = FakeClient()
+    candidates, audit = pilot.query_targeted_annual_report(
+        client, stock_code="600001", report_year=2022
+    )
+
+    assert candidates == []
+    assert client.calls == [4]
+    assert audit[-1]["pages_requested"] == 4
+    assert audit[-1]["index_terminal_state"] == "INDEX_PAGE_CAP_REACHED_UNRESOLVED"
 
 
 def test_output_root_cannot_escape_ignored_diagnostic_workspace(tmp_path):

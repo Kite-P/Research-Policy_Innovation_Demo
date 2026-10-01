@@ -66,6 +66,14 @@ R3G 仍用 R3F 原 parser 输出重算固定 14 行，不删除候选退出行�
 
 R4B 沿用冻结 94 行清单；采集达到 120 次守门预算后停止。30 份 PDF/TXT 中 27 行通过来源/发行人/年度/全文核验，17 行 stale-success HIGH/MEDIUM 样本进一步通过独立名称审核；其余行未决或仅作本地控制。已审核子样本的 issuer/year-end-name accuracy 均为 16/17，evidence-state accuracy 为 17/17。最终状态 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。没有 Full 写回或专利访问；v3 Pilot Gate 仍 PASS，但不代表名称范围 Gate 通过。后续只可按 R4C ignored 计划另行审批，不得把本轮部分结果外推为 Full 修复依据。
 
+> 本段为 R4B 首轮历史状态；当前续跑结果如下。
+
+## 4.4A-R4B2 诊断 Pilot 续跑
+
+R4B2 沿用冻结 manifest（94 rows / 86 firms；SHA-256 `30C47523292A96F19EDF889ACDD0851B26887B08D60B91F06E14EF2D9420F78C`）。旧 R4B 120 次历史计数不变；新 epoch 53 次 guarded attempts、53 个响应、0 传输异常、0 预派发错误、0 来源封锁，累计 173 次。重下载已完成证据 0，H2 请求 0，未访问 CNIPA 专利系统。旧 30 条 acquisition 均映射到冻结键，来源分类为 27 完整有效 H1、2 摘要、1 错误发行人；累计身份复核为 45 完整有效 H1、8 摘要、1 错误发行人、10 文本提取未解决。45/45 有效 H1 已独立审核。
+
+94 行均有明确终态：44 `TARGETED_H2_REQUIRED`、1 `SOURCE_REVIEW_PASS`、9 `SOURCE_IDENTITY_PROBLEM`、10 `OCR_OR_MANUAL_REQUIRED`、18 `INDEX_COMPLETE_RESULT_SET_NO_VALID_REPORT`、2 `SOURCE_UNRESOLVED`、10 `LOCAL_CONTROL_ONLY`。索引的 18 个完整空结果集不证明报告不存在；2 行因证券目录映射缺失仍未决。MEDIUM 观察到通用 `FIELD_BOUNDARY_ERROR`，即前导回答标记清理误删合法法人名称首字“无”；生产 parser 本轮未改。总体诊断仍为 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`，v3 Pilot Gate 仍 PASS，但全范围名称状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`，zero/missing semantics 仍 pending。逐行材料及 R4C 计划留在 ignored results。
+
 ## Local parser output
 
 `read_cnipa_export` 支持 XLSX 和 XML，并标准化为：

@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -18,6 +19,12 @@ import requests
 from scripts import diagnose_cnipa_full_gaps_20260930 as r4a
 from scripts import run_cninfo_legal_name_recovery_20260929 as canonical
 from src.cnipa_annual_report_names import extract_annual_report_legal_name_evidence
+from src.cnipa_r4b2_audit import (
+    MAX_INDEX_PAGES_PER_FIRM_YEAR,
+    RequestAuditLog,
+    classify_index_result,
+    validate_r4b2_offline_gate,
+)
 from src.historical_province_sources import (
     CNINFO_ANNOUNCEMENT_QUERY_URL,
     CNINFO_STATIC_BASE_URL,
@@ -33,6 +40,7 @@ GAP_ROSTER_PATH = DIAGNOSIS_DIR / "full_gap_roster.csv"
 STALE_ROSTER_PATH = DIAGNOSIS_DIR / "stale_success_risk.csv"
 R4A_SUMMARY_PATH = DIAGNOSIS_DIR / "diagnosis_summary.json"
 RUN_DIR = DIAGNOSIS_DIR / "r4b_20260930"
+R4B2_RUN_DIR = RUN_DIR / "r4b2_20261001"
 UNIVERSE_PATH = ROOT / "data/processed/real_company_universe_enriched.parquet"
 TARGET_MANIFEST_PATH = ROOT / "results/real_financial_full/target_manifest.csv"
 AUDIT_PATH = ROOT / "results/cnipa_preflight/entity_name_audit.csv"
@@ -126,6 +134,8 @@ class RequestGuard:
         clock=time.time,
         monotonic=None,
         sleep=time.sleep,
+        audit_log: RequestAuditLog | None = None,
+        counter_key: str = "request_count",
     ) -> None:
         if min_interval < 1.0 or max_requests > 120 or max_requests < 1:
             raise ValueError("INVALID_REQUEST_GUARD_LIMITS")
@@ -135,13 +145,15 @@ class RequestGuard:
         self.max_requests = max_requests
         self.clock = monotonic or clock
         self.sleep = sleep
+        self.audit_log = audit_log
+        self.counter_key = counter_key
 
-    def perform(self, transport, method: str, url: str, **kwargs):
+    def perform(self, transport, method: str, url: str, *, audit_context=None, **kwargs):
         if not _allowed_cninfo_url(url):
             raise ValueError("NETWORK_HOST_NOT_ALLOWED")
         if self.state.get("source_blocked"):
             raise SourceBlocked("SOURCE_BLOCKED_STOP_IS_ACTIVE")
-        if int(self.state.get("request_count", 0)) >= self.max_requests:
+        if int(self.state.get(self.counter_key, 0)) >= self.max_requests:
             self.state["stop_reason"] = "REQUEST_CAP_REACHED"
             self.persist()
             raise RequestCapReached("HTTP_REQUEST_HARD_CAP_REACHED")
@@ -150,20 +162,43 @@ class RequestGuard:
             delay = self.min_interval - (self.clock() - float(last_request))
             if delay > 0:
                 self.sleep(delay)
-        self.state["request_count"] = int(self.state.get("request_count", 0)) + 1
+        attempt_number = int(self.state.get(self.counter_key, 0)) + 1
+        self.state[self.counter_key] = attempt_number
         self.state["last_request_at"] = self.clock()
         self.state["pending_request"] = {"method": method.upper(), "url": url}
-        self.state.setdefault("request_history", []).append(
-            {"attempt": self.state["request_count"], "method": method.upper(), "url": url}
-        )
+        if self.counter_key == "request_count":
+            self.state.setdefault("request_history", []).append(
+                {"attempt": attempt_number, "method": method.upper(), "url": url}
+            )
+        started_at = datetime.now().astimezone().isoformat(timespec="seconds")
         self.persist()
         try:
             response = transport(method, url, **kwargs)
-        except Exception:
+        except Exception as exc:
             self.state["pending_request"] = None
-            self.state["request_outcome_unknown"] = True
+            pre_dispatch_error = isinstance(exc, TypeError) and (
+                "multiple values for keyword argument" in str(exc)
+            )
+            if pre_dispatch_error:
+                self.state["pre_dispatch_or_local_error_count"] = int(
+                    self.state.get("pre_dispatch_or_local_error_count", 0)
+                ) + 1
+            else:
+                self.state["request_outcome_unknown"] = True
+                self.state["transport_exception_count"] = int(
+                    self.state.get("transport_exception_count", 0)
+                ) + 1
+            self._audit_attempt(
+                audit_context, attempt_number, method, url, started_at,
+                transport_called=not pre_dispatch_error, response_received=False, http_status=None,
+                exception_type=type(exc).__name__, exception_message_short=str(exc),
+                source_blocked=False,
+            )
             self.persist()
             raise
+        self.state["response_received_count"] = int(
+            self.state.get("response_received_count", 0)
+        ) + 1
         status = int(response.status_code)
         content = getattr(response, "content", b"")
         is_pdf = bytes(content[:5]) == b"%PDF-"
@@ -186,6 +221,9 @@ class RequestGuard:
         )
         self.state["pending_request"] = None
         if status in {401, 403, 429} or challenge:
+            self.state["source_block_count"] = int(
+                self.state.get("source_block_count", 0)
+            ) + 1
             self.state.update(
                 source_blocked=True,
                 stop_reason="SOURCE_BLOCKED",
@@ -193,12 +231,49 @@ class RequestGuard:
                 blocked_domain=urlparse(url).hostname,
                 blocked_http_status=status,
             )
+            self._audit_attempt(
+                audit_context, attempt_number, method, url, started_at,
+                transport_called=True, response_received=True, http_status=status,
+                exception_type="", exception_message_short="", source_blocked=True,
+            )
             self.persist()
             raise SourceBlocked(f"HTTP_{status}" if status in {401, 403, 429} else "CHALLENGE")
         self.state["last_http_status"] = status
-        self.state["request_history"][-1]["http_status"] = status
+        if self.counter_key == "request_count":
+            self.state["request_history"][-1]["http_status"] = status
+        self._audit_attempt(
+            audit_context, attempt_number, method, url, started_at,
+            transport_called=True, response_received=True, http_status=status,
+            exception_type="", exception_message_short="", source_blocked=False,
+        )
         self.persist()
         return response
+
+    def _audit_attempt(
+        self, context, sequence, method, url, started_at, *, transport_called,
+        response_received, http_status, exception_type, exception_message_short,
+        source_blocked,
+    ) -> None:
+        if self.audit_log is None:
+            return
+        context = context or {}
+        self.audit_log.record(
+            sequence=sequence,
+            firm_key=context.get("firm_key", ""),
+            year=context.get("year", 0),
+            action=context.get("action", ""),
+            method=method,
+            url=url,
+            attempt_started_at=started_at,
+            transport_called=transport_called,
+            response_received=response_received,
+            http_status=http_status,
+            exception_type=exception_type,
+            exception_message_short=exception_message_short,
+            source_blocked=source_blocked,
+            index_page=context.get("index_page"),
+            budget_consumed=True,
+        )
 
 
 def verify_resume_fingerprints(checkpoint: dict[str, Any], manifest_fingerprint: str) -> None:
@@ -365,6 +440,14 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
     temporary.replace(path)
 
 
+def _record_pdf_provenance(prediction: dict[str, Any], root: Path, pdf_path: Path) -> None:
+    """Record durable PDF identity before attempting text extraction."""
+    relative = pdf_path.relative_to(root)
+    prediction["_evidence_path"] = str(relative)
+    prediction["_evidence_sha256"] = str(prediction.get("pdf_sha256", ""))
+    prediction["_text_path"] = str(relative.with_suffix(".txt"))
+
+
 def capture_protected_hashes(root: Path = ROOT) -> dict[str, str]:
     summary = json.loads((root / R4A_SUMMARY_PATH.relative_to(ROOT)).read_text(encoding="utf-8"))
     expected = summary["protected_file_sha256_before"]
@@ -406,16 +489,30 @@ class GuardedSession(requests.Session):
     def __init__(self, guard: RequestGuard) -> None:
         super().__init__()
         self.guard = guard
+        self.audit_context: dict[str, Any] = {}
 
     def request(self, method, url, **kwargs):
+        audit_context = kwargs.pop("_r4b2_audit_context", self.audit_context)
         kwargs["allow_redirects"] = False
-        return self.guard.perform(super().request, method, url, **kwargs)
+        return self.guard.perform(
+            super().request, method, url, audit_context=audit_context, **kwargs
+        )
 
 
 def query_targeted_annual_report(
     client: CNINFOAnnualReportClient, *, stock_code: str, report_year: int
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     code = str(stock_code).strip().zfill(6)
+    row_key = f"{getattr(client, 'r4b2_firm_key', '')}|{int(report_year)}"
+    prior_pages = int(getattr(client, "r4b2_index_pages_used", {}).get(row_key, 0))
+    session = getattr(client, "session", None)
+    if isinstance(session, GuardedSession):
+        session.audit_context = {
+            "firm_key": getattr(client, "r4b2_firm_key", ""),
+            "year": int(report_year),
+            "action": "TARGETED_CNINFO_STOCK_CATALOG",
+            "index_page": None,
+        }
     org_id = client.stock_catalog().get(code)
     if not org_id:
         return [], []
@@ -437,14 +534,47 @@ def query_targeted_annual_report(
     }
     candidates: list[dict[str, Any]] = []
     audit_rows: list[dict[str, Any]] = []
-    page = 1
-    while page <= 20:
+    if prior_pages >= MAX_INDEX_PAGES_PER_FIRM_YEAR:
+        audit_rows.append(
+            {
+                "event_type": "INDEX_PAGINATION_SUMMARY",
+                "pages_requested": prior_pages,
+                "pages_requested_this_call": 0,
+                "page_cap": MAX_INDEX_PAGES_PER_FIRM_YEAR,
+                "api_total_pages": None,
+                "announcements_seen": 0,
+                "candidate_titles_seen": "",
+                "valid_candidate_count": 0,
+                "index_terminal_state": "INDEX_PAGE_CAP_REACHED_UNRESOLVED",
+            }
+        )
+        return candidates, audit_rows
+    page = prior_pages + 1
+    total_pages = 0
+    titles_seen: list[str] = []
+    pages_requested = prior_pages
+    pages_requested_this_call = 0
+    while page <= MAX_INDEX_PAGES_PER_FIRM_YEAR:
         params["pageNum"] = page
+        session = getattr(client, "session", None)
+        if isinstance(session, GuardedSession):
+            session.audit_context = {
+                "firm_key": getattr(client, "r4b2_firm_key", ""),
+                "year": int(report_year),
+                "action": "TARGETED_CNINFO_INDEX_LOOKUP",
+                "index_page": page,
+            }
         response = client._request("POST", CNINFO_ANNOUNCEMENT_QUERY_URL, data=params)
+        pages_requested += 1
+        pages_requested_this_call += 1
+        if hasattr(client, "r4b2_index_pages_used"):
+            client.r4b2_index_pages_used[row_key] = pages_requested
         payload = response.json()
         announcements = payload.get("announcements") or []
+        total_pages = int(payload.get("totalpages") or 0)
         for item in announcements:
             title = re.sub(r"<[^>]+>", "", str(item.get("announcementTitle", ""))).strip()
+            titles_seen.append(title)
             title_year = match_annual_report_title(title)
             audit_rows.append(
                 {
@@ -470,10 +600,27 @@ def query_targeted_annual_report(
             }
             if validate_index_candidate(candidate, stock_code=code, report_year=int(report_year)):
                 candidates.append(candidate)
-        total_pages = int(payload.get("totalpages") or 0)
-        if page >= total_pages or not announcements:
+        if candidates or page >= total_pages:
             break
         page += 1
+    index_terminal = classify_index_result(
+        pages_requested, total_pages, len(candidates), page_cap=MAX_INDEX_PAGES_PER_FIRM_YEAR
+    )
+    audit_rows.append(
+        {
+            "event_type": "INDEX_PAGINATION_SUMMARY",
+            "pages_requested": pages_requested,
+            "pages_requested_this_call": pages_requested_this_call,
+            "page_cap": MAX_INDEX_PAGES_PER_FIRM_YEAR,
+            "api_total_pages": total_pages,
+            "announcements_seen": sum(
+                1 for item in audit_rows if item.get("event_type") != "INDEX_PAGINATION_SUMMARY"
+            ),
+            "candidate_titles_seen": " | ".join(titles_seen),
+            "valid_candidate_count": len(candidates),
+            "index_terminal_state": index_terminal,
+        }
+    )
     candidates.sort(key=lambda row: int(row.get("announcement_time") or 0), reverse=True)
     return candidates, audit_rows
 
@@ -651,8 +798,12 @@ def _parser_fields(text: str, row: pd.Series) -> dict[str, Any]:
     return output
 
 
-def _fetch_pdf(session: GuardedSession, url: str) -> tuple[bytes, int]:
-    response = session.get(url, timeout=60)
+def _fetch_pdf(
+    session: GuardedSession, url: str, *, audit_context: dict[str, Any] | None = None
+) -> tuple[bytes, int]:
+    response = session.get(
+        url, timeout=60, _r4b2_audit_context=audit_context or session.audit_context
+    )
     status = int(response.status_code)
     response.raise_for_status()
     payload = response.content
@@ -739,7 +890,127 @@ def initialize_run(root: Path = RUN_DIR) -> tuple[pd.DataFrame, dict[str, Any], 
     return _merge_inputs(manifest), state, snapshot
 
 
-def run_pilot(*, resume: bool = False, root: Path = RUN_DIR) -> dict[str, Any]:
+def assert_r4b2_offline_gate(root: Path = R4B2_RUN_DIR) -> None:
+    if root.resolve() != R4B2_RUN_DIR.resolve():
+        raise ValueError("R4B2_OUTPUT_EPOCH_MISMATCH")
+    required = {
+        "summary": root / "r4b2_pre_network_summary.json",
+        "mapping": root / "r4b_source_identity_reconciliation.csv",
+        "sources": root / "r4b2_source_review_30.csv",
+        "reviews": root / "r4b2_content_review_27.csv",
+    }
+    if not all(path.is_file() for path in required.values()):
+        raise ValueError("R4B2_OFFLINE_GATE_ARTIFACT_MISSING")
+    validate_r4b2_offline_gate(
+        json.loads(required["summary"].read_text(encoding="utf-8")),
+        pd.read_csv(required["mapping"], dtype=str, keep_default_na=False),
+        pd.read_csv(required["sources"], dtype=str, keep_default_na=False),
+        pd.read_csv(required["reviews"], dtype=str, keep_default_na=False),
+    )
+
+
+def prepare_r4b2_continuation(*, root: Path = R4B2_RUN_DIR) -> dict[str, Any]:
+    """Seed a fresh R4B2 epoch from verified evidence without performing requests."""
+    assert_r4b2_offline_gate(root)
+    if (root / "checkpoint.json").exists():
+        return json.loads((root / "checkpoint.json").read_text(encoding="utf-8"))
+    _, state, protected_before = initialize_run(root)
+    old_predictions = pd.read_csv(
+        RUN_DIR / "pilot_predictions.csv", dtype=str, keep_default_na=False
+    )
+    mapping = pd.read_csv(
+        root / "r4b_source_identity_reconciliation.csv", dtype=str, keep_default_na=False
+    )
+    content = pd.read_csv(root / "r4b2_content_review_27.csv", dtype=str, keep_default_na=False)
+    source_reviews = pd.read_csv(
+        root / "r4b2_source_review_30.csv", dtype=str, keep_default_na=False
+    )
+    reviews = pd.read_csv(RUN_DIR / "pilot_source_review.csv", dtype=str, keep_default_na=False)
+
+    mapped = mapping.set_index(["firm_key", "year"])
+    for index, prediction in old_predictions.iterrows():
+        key = (str(prediction.firm_key), str(prediction.year))
+        if str(prediction.get("pdf_sha256", "")):
+            if key not in mapped.index:
+                raise ValueError(f"R4B2_EVIDENCE_NOT_IN_OFFLINE_MAPPING:{key}")
+            old_pdf = RUN_DIR / str(prediction["_evidence_path"])
+            if sha256_file(old_pdf) != str(prediction["pdf_sha256"]).lower():
+                raise ValueError(f"R4B2_OLD_EVIDENCE_HASH_MISMATCH:{key}")
+            evidence_dir = root / "evidence" / hashlib.sha256(
+                f"{key[0]}|{key[1]}".encode()
+            ).hexdigest()[:16]
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            new_pdf, new_txt = evidence_dir / "report.pdf", evidence_dir / "report.txt"
+            shutil.copyfile(old_pdf, new_pdf)
+            shutil.copyfile(old_pdf.with_suffix(".txt"), new_txt)
+            if sha256_file(new_pdf) != str(prediction["pdf_sha256"]).lower():
+                raise ValueError(f"R4B2_COPIED_EVIDENCE_HASH_MISMATCH:{key}")
+            old_predictions.loc[index, "_evidence_path"] = str(new_pdf.relative_to(root))
+            old_predictions.loc[index, "_text_path"] = str(new_txt.relative_to(root))
+            old_predictions.loc[index, "_evidence_sha256"] = str(prediction["pdf_sha256"])
+            old_predictions.loc[index, "_manifest_fingerprint"] = EXPECTED_FRAME_FINGERPRINT
+            state["processed_keys"][f"{key[0]}|{key[1]}"] = {
+                "completed": True,
+                "manifest_fingerprint": EXPECTED_FRAME_FINGERPRINT,
+                "evidence_path": str(new_pdf.relative_to(root)),
+                "evidence_sha256": str(prediction["pdf_sha256"]),
+            }
+        elif str(prediction.get("planned_action", "")) == "NO_NETWORK_NEGATIVE_CONTROL":
+            state["processed_keys"][f"{key[0]}|{key[1]}"] = {
+                "completed": True,
+                "manifest_fingerprint": EXPECTED_FRAME_FINGERPRINT,
+                "terminal_without_evidence": True,
+            }
+
+    review_aliases = {
+        "source_is_official_review": "source_is_official",
+        "source_is_correct_issuer_review": "source_is_correct_issuer",
+        "source_is_correct_year_review": "source_is_correct_year",
+        "source_is_full_annual_report_review": "source_is_full_annual_report",
+        "review_legal_name_at_year_end_review": "review_legal_name_at_year_end",
+        "review_change_evidence_state_review": "review_change_evidence_state",
+        "review_previous_name_review": "review_previous_name",
+        "review_new_name_review": "review_new_name",
+        "review_effective_date_review": "review_effective_date",
+        "review_date_precision_review": "review_date_precision",
+        "review_status_review": "review_status",
+        "reviewer_evidence_excerpt_review": "reviewer_evidence_excerpt",
+        "review_notes_review": "review_notes",
+    }
+    reviews_indexed = reviews.set_index(["firm_key", "year"])
+    for _, row in content.iterrows():
+        key = (str(row.firm_key), str(row.year))
+        for source_column, target_column in review_aliases.items():
+            if source_column in row.index:
+                reviews_indexed.loc[key, target_column] = str(row[source_column])
+    for _, row in source_reviews.iterrows():
+        key = (str(row.firm_key), str(row.year))
+        if key in reviews_indexed.index:
+            for source_column, target_column in review_aliases.items():
+                if source_column in row.index:
+                    reviews_indexed.loc[key, target_column] = str(row[source_column])
+
+    _atomic_frame(old_predictions, root / "pilot_predictions.csv")
+    _atomic_frame(reviews_indexed.reset_index(), root / "pilot_source_review.csv")
+    state.update(
+        r4b_historical_guarded_attempts=120,
+        r4b2_guarded_attempt_count=0,
+        response_received_count=0,
+        transport_exception_count=0,
+        pre_dispatch_or_local_error_count=0,
+        source_block_count=0,
+        redownloaded_completed_evidence=0,
+        protected_hashes_before=protected_before,
+    )
+    _atomic_json(root / "checkpoint.json", state)
+    return state
+
+
+def run_pilot(
+    *, resume: bool = False, root: Path = RUN_DIR, r4b2_epoch: bool = False
+) -> dict[str, Any]:
+    if r4b2_epoch:
+        assert_r4b2_offline_gate(root)
     root = _ensure_output_root(root)
     frame, state, protected_before = initialize_run(root)
     if state.get("source_blocked"):
@@ -748,8 +1019,14 @@ def run_pilot(*, resume: bool = False, root: Path = RUN_DIR) -> dict[str, Any]:
             "reason": "SOURCE_BLOCKED",
             "request_count": state["request_count"],
         }
+    audit_log = RequestAuditLog(root / "request_audit.jsonl", epoch="R4B2") if r4b2_epoch else None
+    counter_key = "r4b2_guarded_attempt_count" if r4b2_epoch else "request_count"
     guard = RequestGuard(
-        state=state, persist=lambda: _atomic_json(root / "checkpoint.json", state), max_requests=120
+        state=state,
+        persist=lambda: _atomic_json(root / "checkpoint.json", state),
+        max_requests=120,
+        audit_log=audit_log,
+        counter_key=counter_key,
     )
     session = GuardedSession(guard)
     client = CNINFOAnnualReportClient(
@@ -758,15 +1035,34 @@ def run_pilot(*, resume: bool = False, root: Path = RUN_DIR) -> dict[str, Any]:
         session=session,
         request_spacing=1.0,
     )
+    client.r4b2_index_pages_used = {}
+    if r4b2_epoch and (root / "request_audit.jsonl").is_file():
+        for line in (root / "request_audit.jsonl").read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            event = json.loads(line)
+            if event.get("action") != "TARGETED_CNINFO_INDEX_LOOKUP":
+                continue
+            if event.get("index_page") is None:
+                continue
+            key = f"{event.get('firm_key', '')}|{event.get('year', '')}"
+            client.r4b2_index_pages_used[key] = max(
+                int(event["index_page"]), client.r4b2_index_pages_used.get(key, 0)
+            )
     predictions_path = root / "pilot_predictions.csv"
     current: dict[str, dict[str, Any]] = {}
     if resume and predictions_path.exists():
         existing = pd.read_csv(predictions_path, dtype=str, keep_default_na=False)
         current = {f"{r.firm_key}|{r.year}": r.to_dict() for _, r in existing.iterrows()}
-    if int(state.get("request_count", 0)) >= 120:
+    if int(state.get(counter_key, 0)) >= 120:
         state["stop_reason"] = "REQUEST_CAP_REACHED"
         _atomic_json(root / "checkpoint.json", state)
-        return reconcile_local_evidence(root=root)
+        if not r4b2_epoch:
+            return reconcile_local_evidence(root=root)
+        return {
+            "status": "TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX",
+            "reason": "R4B2_REQUEST_CAP_REACHED",
+        }
     audit_rows: list[dict[str, Any]] = []
     for _, row in frame.iterrows():
         key = f"{row.firm_key}|{int(row.year)}"
@@ -825,7 +1121,14 @@ def run_pilot(*, resume: bool = False, root: Path = RUN_DIR) -> dict[str, Any]:
             if action["mode"] in {"EXACT_H1", "EXACT_H1_FOR_MANUAL_REVIEW"}:
                 pred["acquisition_action"] = action["mode"]
                 pred["source_url_requested"] = action["url"]
-                pdf_payload, status = _fetch_pdf(session, action["url"])
+                context = {
+                    "firm_key": str(row.firm_key),
+                    "year": int(row.year),
+                    "action": action["mode"],
+                    "index_page": None,
+                }
+                session.audit_context = context
+                pdf_payload, status = _fetch_pdf(session, action["url"], audit_context=context)
                 pred.update(
                     http_status=status,
                     pdf_bytes=len(pdf_payload),
@@ -834,6 +1137,7 @@ def run_pilot(*, resume: bool = False, root: Path = RUN_DIR) -> dict[str, Any]:
                 )
             elif action["mode"] == "INDEX_LOOKUP":
                 pred["acquisition_action"] = action["mode"]
+                client.r4b2_firm_key = str(row.firm_key)
                 code = _stock_code(row)
                 candidates, index_audit = query_targeted_annual_report(
                     client, stock_code=code, report_year=int(row.year)
@@ -850,7 +1154,16 @@ def run_pilot(*, resume: bool = False, root: Path = RUN_DIR) -> dict[str, Any]:
                         source_report_year=candidate["report_year"],
                         source_url_requested=candidate["source_url"],
                     )
-                    pdf_payload, status = _fetch_pdf(session, candidate["source_url"])
+                    context = {
+                        "firm_key": str(row.firm_key),
+                        "year": int(row.year),
+                        "action": "INDEX_CANDIDATE_H1_GET",
+                        "index_page": None,
+                    }
+                    session.audit_context = context
+                    pdf_payload, status = _fetch_pdf(
+                        session, candidate["source_url"], audit_context=context
+                    )
                     pred.update(
                         http_status=status,
                         pdf_bytes=len(pdf_payload),
@@ -880,8 +1193,11 @@ def run_pilot(*, resume: bool = False, root: Path = RUN_DIR) -> dict[str, Any]:
                 evidence_dir = root / "evidence" / hashlib.sha256(key.encode()).hexdigest()[:16]
                 pdf_path = evidence_dir / "report.pdf"
                 _atomic_bytes(pdf_path, pdf_payload)
-                text = _text_from_pdf_bytes(pdf_payload)
+                # Persist provenance as soon as the PDF is durable, even if text
+                # extraction fails afterward. This keeps valid PDF evidence auditable.
                 text_path = evidence_dir / "report.txt"
+                _record_pdf_provenance(pred, root, pdf_path)
+                text = _text_from_pdf_bytes(pdf_payload)
                 _atomic_bytes(text_path, text.encode("utf-8"))
                 pred["text_chars"] = len(text)
                 pred["source_title"] = candidate.get(
@@ -891,12 +1207,9 @@ def run_pilot(*, resume: bool = False, root: Path = RUN_DIR) -> dict[str, Any]:
                 parser = _parser_fields(text, row)
                 pred.update(parser)
                 pred["acquisition_status"] = "PDF_AND_TEXT_OK"
-                pred["_evidence_path"] = str(pdf_path.relative_to(root))
-                pred["_evidence_sha256"] = pred["pdf_sha256"]
                 pred["_completed"] = True
                 pred["_manifest_fingerprint"] = EXPECTED_FRAME_FINGERPRINT
                 # Keep source review separate until independent verification.
-                pred["_text_path"] = str(text_path.relative_to(root))
                 pred["_review_excerpt_candidate"] = _short_independent_excerpt(
                     text, str(_value(row, "stock_code", "code", default=""))
                 )
@@ -923,13 +1236,17 @@ def run_pilot(*, resume: bool = False, root: Path = RUN_DIR) -> dict[str, Any]:
         except Exception as exc:
             pred["acquisition_status"] = f"ERROR:{type(exc).__name__}:{exc}"
             pred["_completed"] = True
-            pred["_terminal_without_evidence"] = True
+            pred["_terminal_without_evidence"] = not bool(
+                pred.get("pdf_sha256") and pred.get("_evidence_path")
+            )
             pred["_manifest_fingerprint"] = EXPECTED_FRAME_FINGERPRINT
             current[key] = pred
             state["processed_keys"][key] = {
                 "completed": True,
                 "manifest_fingerprint": EXPECTED_FRAME_FINGERPRINT,
-                "terminal_without_evidence": True,
+                "terminal_without_evidence": bool(pred["_terminal_without_evidence"]),
+                "evidence_path": pred.get("_evidence_path", ""),
+                "evidence_sha256": pred.get("_evidence_sha256", ""),
             }
             state["last_completed"] = key
             _atomic_json(root / "checkpoint.json", state)
@@ -986,7 +1303,24 @@ def run_pilot(*, resume: bool = False, root: Path = RUN_DIR) -> dict[str, Any]:
         "manifest_sha256": EXPECTED_MANIFEST_SHA256,
         "frame_fingerprint": EXPECTED_FRAME_FINGERPRINT,
         "key_fingerprint": EXPECTED_KEY_FINGERPRINT,
-        "request_count": state["request_count"],
+        "request_count": int(state.get(counter_key, 0)),
+        "r4b_historical_guarded_attempts": 120 if r4b2_epoch else None,
+        "r4b2_guarded_attempts": int(state.get("r4b2_guarded_attempt_count", 0)),
+        "response_received_count": int(state.get("response_received_count", 0)),
+        "transport_exception_count": int(state.get("transport_exception_count", 0)),
+        "pre_dispatch_or_local_error_count": int(
+            state.get("pre_dispatch_or_local_error_count", 0)
+        ),
+        "source_block_count": int(state.get("source_block_count", 0)),
+        "request_audit_rows": (
+            sum(1 for _ in (root / "request_audit.jsonl").open(encoding="utf-8"))
+            if (root / "request_audit.jsonl").is_file()
+            else 0
+        ),
+        "redownloaded_completed_evidence": int(
+            state.get("redownloaded_completed_evidence", 0)
+        ),
+        "h2_requests": 0,
         "source_blocked": bool(state.get("source_blocked")),
         "protected_inputs_unchanged": protected_unchanged,
         "output_keys_within_manifest": True,

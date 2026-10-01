@@ -2,6 +2,22 @@
 
 ## 执行结论
 
+## 4.4A-R4B2 最终状态（2026-10-01）
+
+R4B2 在同一冻结 94 行 / 86 家 manifest 上续跑，三个冻结指纹均一致。R4B 历史 120 次 guarded attempts 保持不变；R4B2 新 epoch 共 53 次尝试、53 个响应、0 个传输异常、0 个预派发错误、0 个来源封锁，累计 173 次，未触及本 epoch 的 120 次预算。请求审计 53 行；已完成证据重下载 0；H2 请求 0。
+
+旧 R4B 30 条 acquisition 均依据 prediction key/path/hash 映射到 frozen key，mapping unresolved=0；来源分类为 27 `VALID_FULL_H1`、2 `ANNUAL_REPORT_SUMMARY`、1 `WRONG_ISSUER`。累计来源分类为 45 份有效完整年报、8 份摘要、1 份错误发行人、10 份正文提取未解决。两份摘要和错误发行人的具体 frozen key 仅记于 ignored 来源台账。旧 27 条有效 H1 加新增 18 条有效 H1 均完成独立复核，合计 45/45。
+
+94 行均有终态：44 `TARGETED_H2_REQUIRED`、1 `SOURCE_REVIEW_PASS`、9 `SOURCE_IDENTITY_PROBLEM`、10 `OCR_OR_MANUAL_REQUIRED`、18 `INDEX_COMPLETE_RESULT_SET_NO_VALID_REPORT`、2 `SOURCE_UNRESOLVED`、10 `LOCAL_CONTROL_ONLY`。18 个索引行完整扫描未发现合格候选，另 2 行证券目录映射缺失，不能声称没有年报。HIGH 10 行中 7 行当前 parser 已纠正、2 行仍错误或空值、1 行来源错误；MEDIUM 10 行中 9 行正确、1 行仍错。MEDIUM 根因为通用 `FIELD_BOUNDARY_ERROR`：值规范化将以合法汉字“无”开头的名称误判为回答标记并剥除；本轮未改生产 parser。temporal 10 行为 9 行需定向 H2、1 行 H1 已足够；extraction 20 行 PDF 有效但 TXT 为空/过短，未运行 OCR。
+
+45 行 source-grounded review 的 parser accuracy：issuer name 27/45、year-end name 26/45、evidence-state 28/45；这是该独立复核样本的当前 parser 表现，不是 population accuracy。此前仅 27 行的 pre-network 子样本仍分别为 23/27、22/27、23/27，两个口径不应混用。
+
+当前仍为 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。Full/status/state/cache、coverage、R4A manifest 和 frozen GT 未改；未访问 CNIPA 专利系统。固定 v3 Pilot Gate 仍为 `STRICT_PILOT_GATE_PASS`，整体名称范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`，zero/missing semantics 仍 pending。R4C 仅生成 ignored 计划，不批量修复任何总体。
+
+R4B2 最终全库验证：pytest 385 passed；Ruff `All checks passed!`；`uv pip check` 检查 116 packages 且全部兼容；push hygiene PASS。
+
+以下原有结果描述为 R4B 首轮历史快照，不代表 R4B2 累计状态。
+
 状态：`TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。本轮严格使用 R4A 冻结的 94 个 firm-year、86 家企业清单，没有重新抽样。manifest SHA-256 为 `30C47523292A96F19EDF889ACDD0851B26887B08D60B91F06E14EF2D9420F78C`；frame fingerprint 为 `8e26547eda6d24ff78af39e8bf652128809d57b67414655495fba50b130bc2fb`；key fingerprint 为 `96D4FF6735B18707129CE2C4F485F0D22C3547F28A0A9DAF1C164330F4757861`，与 R4A 冻结指纹一致。
 
 计划动作分布为 exact H1 50、单企业年度索引查询 20、人工来源复核 14、无网络 negative control 10。执行守门计数达到 120 后停止，未再发出请求。审计中可确认 30 份 PDF 返回 HTTP 200 并完成文本提取；另有 5 个索引样本记录为未找到可选报告，其余计划动作未能完成。首轮执行器的传输错误使预算计数包含未实际发出的请求；网络请求审计日志不完整，因此除可确认的 30 个 PDF 响应和 5 个索引查询结果外，不将守门计数误称为精确 wire-request 总数。无 403、429、验证码或访问挑战。
