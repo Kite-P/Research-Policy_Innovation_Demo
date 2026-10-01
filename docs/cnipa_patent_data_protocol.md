@@ -6,7 +6,15 @@
 
 本阶段只完成接口准备，不注册、不登录、不下载专利、不绕过验证码，也不运行专利相关回归。
 
-## 2026-10-01 当前 strict-14 状态（R4C1-G2）
+## 2026-10-01 当前 Strict-14 状态（R4C1-G3 离线分解）
+
+G3 完全复用本地 G2 证据，G3 网络请求=0、专利系统访问=0；GT、Full/status/cache、H1/H2 原件、生产 parser/revision 均未改。4 个 H2 targets 中 2 resolved、2 unresolved（1 个已完成公告的 extractor layout gap；1 个 discovery 无公告但 H1 正文已明确事件）。4 份 downloaded notices 均出现预期 old/new 名称对，只有 2 份支持已完成事件，另 2 份属待审议/登记文本。3 个 discovery audit 缺分页总数：没有证据证明已返回超过 3 个候选，但也无法证明完整结果集穷尽。
+
+冻结 6-event slots 为正确 3、unresolved 3：H2 extractor gap 1、H1 event candidate/mapping failure 1、year-precision effective-year field mismatch 1。固定 14-row fused 为 4/14 正确、10/14 mismatch，分解为 H2 2、H1 3、event propagation 3、event mapping 2，合计 5 个依赖机制；year-end 仅 1 行 H1 parser residual。300365 negative control PASS。Frozen45=45/45/45、prior-correct25 regressions=0。
+
+当前 Gate 保持 `STRICT_PILOT_GATE_REPLAY_INCOMPLETE`，H1 status 仍为 `H1_PARSER_REPAIR_NEEDS_FIX`，reason=`current_v3_residual_h1_error+pending_canonical_replay_evidence`。`FULL_WIDE_REPARSE_BLOCKED`；parser revision=`issuer_scope_v3`。详细诊断输出仅在 ignored results。
+
+## 2026-10-01 R4C1-G2 Strict-14 baseline（已由 G3 离线根因分解补充）
 
 G2 从本地复用 14/14 H1 PDF/TXT（URL、PDF/TXT hash 均核验，H1 GET=0），按 canonical row fusion 与 candidate semantics 重新评分。H1-only 为 evidence-state 2/14、year-end 13/14；fused 为 4/14、13/14。4 个事件预测对固定 6 个分母，old/new/date/date precision 各 3/6，unresolved=3。H2 needed manifest=4，bounded network 共 10/24 HTTP attempts、3 次限定公告 discovery、4 个公告 PDF GET；有效 carry=1，独立确认 H2=2，另两目标证据未完成。Gate=`STRICT_PILOT_GATE_REPLAY_INCOMPLETE`，非 parser failure；`h1_parser_repair_status=H1_PARSER_REPAIR_NEEDS_FIX` 的原因是 `pending_canonical_replay_evidence`。Frozen45 45/45/45，prior-correct25 regressions=0。GT 与 Full/status/state/cache 未变；未访问 CNIPA 专利系统，未执行 OCR/Full refresh。专利来源、范围和 zero/missing 语义均未改变；详细企业级材料仅在 ignored results。
 

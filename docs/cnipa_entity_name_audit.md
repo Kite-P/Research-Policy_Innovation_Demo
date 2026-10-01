@@ -1,6 +1,14 @@
 # CNIPA 申请人名称预检
 
-## 2026-10-01 R4C1-G2 当前 canonical-equivalent Strict-14 结论
+## 2026-10-01 R4C1-G3 当前 Strict-14 离线失败分解
+
+本轮只复核 G2 本地冻结证据，网络请求=0、专利系统访问=0；生产 parser/revision、源 PDF/TXT、GT、Full/status/cache 与 Gate 均未改。4 个 H2 targets 中 2 个已解决；未解决的两个根因分别为一份已完成公告的 extractor layout gap、以及公告 discovery 空结果但 H1 正文已提供事件证据。4 份公告均含预期 old/new 字符串，只有 2 份证明更名已完成；另 2 份是待审议/登记阶段。共 3 个 discovery audit 未记录分页总数，未证实 max-3 截断，但也不能证明结果集合穷尽。
+
+六事件分解为正确 3、H2 extractor failure 1、H1 candidate/event mapping failure 1、event field mismatch 1。两个 unresolved H2 targets 与三个 unresolved event slots 并非一一因果：第三项是已有的年度精度事件未规范化有效年份。14 行 fused accuracy 为 4/14，10 个 mismatch 按依赖分类为 H2=2、H1=3、row propagation=3、event mapping=2，共 5 个根依赖。年末名称唯一失配为 H1 temporal/year-end residual；300365 negative control PASS。Frozen45=45/45/45，prior-correct25 regressions=0。
+
+Gate 保持 `STRICT_PILOT_GATE_REPLAY_INCOMPLETE`；`h1_parser_repair_status=H1_PARSER_REPAIR_NEEDS_FIX`，reason=`current_v3_residual_h1_error+pending_canonical_replay_evidence`。`FULL_WIDE_REPARSE_BLOCKED` 仍有效；GT 与 Full/status/cache hash 前后不变。详细公司级取证只存在 ignored `results/cnipa_preflight/strict14_g3_forensics_20261001/`。
+
+## 2026-10-01 R4C1-G2 canonical-equivalent Strict-14 baseline（已由 G3 细分）
 
 R4C1-G2 本地复用了 14/14 精确 H1 PDF/TXT，URL、PDF hash、TXT hash 与 firm-year provenance 均核验一致，H1 GET=0。当前 Gate 使用 canonical row fusion 与候选构造：G1 的 2/14 evidence-state、13/14 year-end 和 2 个 candidate 均标记为 `H1_ONLY_NON_EQUIVALENT_REPLAY_RESULT`，不解释为 parser Gate 准确率。canonical H1-only candidate=7，融合后仍 7；相邻名称差异候选标记 5。全库验证：pytest 466 passed、Ruff All checks passed、uv dependency check 116 packages compatible；push hygiene 检查通过。
 

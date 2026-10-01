@@ -1,8 +1,16 @@
 # CNIPA Full 名称缺口与旧解析缓存离线分层
 
+## 2026-10-01 R4C1-G3 Strict-14 离线失败分解
+
+G3 只读取 G2 冻结结果及既存本地正文，G3 网络请求=0、专利访问=0；没有改 parser/revision、H1/H2 原件、GT、Full/status/cache。4 个 H2 targets 中 2 个 resolved、2 个 unresolved，分别归为 H2 extractor layout gap 与 no notice returned（但既有 H1 正文已含所需时间事件）。4 份已下载 notice 均含预期名称对，2 份提供已完成名称变更及有效日证据，另 2 份是待审批/待登记文本；1 份已完成公告正文未被现有 extractor 识别。3 个 discovery audit 缺分页总数；无证据显示已返回候选数超过 3 且只检查前三份，但完整检索集合无法由旧 audit 证明。
+
+固定 event=6：3 正确、3 unresolved（H2 extractor 1、H1 event candidate/mapping 1、年度精度日期字段 1）。因此 unresolved H2 targets 不直接解释全部 3 个 event slots。固定 row=14：fused 正确 4、mismatch 10；依赖分类为 H2 2、H1 3、event propagation 3、event mapping 2，压缩为 5 个独立依赖机制。year-end mismatch=1，主因 `H1_YEAR_END_PARSER_ERROR`。300365 negative control PASS；Frozen45=45/45/45，prior25 regressions=0。
+
+Gate 仍为 `STRICT_PILOT_GATE_REPLAY_INCOMPLETE`；H1 repair reason 已精确为 `current_v3_residual_h1_error+pending_canonical_replay_evidence`。`FULL_WIDE_REPARSE_BLOCKED` 继续有效，Full/status/cache 与三份 GT 的受保护 SHA-256 均未变化。Parser revision=`issuer_scope_v3`。逐项材料与输入 hash 清单仅保存在 ignored `results/cnipa_preflight/strict14_g3_forensics_20261001/`。
+
 ## 本轮范围与状态
 
-## 2026-10-01 R4C1-G2 当前 canonical-equivalent replay
+## 2026-10-01 R4C1-G2 canonical-equivalent replay baseline（已由 G3 细分）
 
 G2 在不重新请求 H1 的条件下复用 14/14 精确 PDF/TXT 与 URL/PDF/TXT hash provenance，H1 GET=0。三份 GT 未改；parser revision 仍为 `issuer_scope_v3`。上一轮 G1 的 2/14、13/14、candidate=2 属于 `H1_ONLY_NON_EQUIVALENT_REPLAY_RESULT`，不作为 parser Gate 指标。
 
