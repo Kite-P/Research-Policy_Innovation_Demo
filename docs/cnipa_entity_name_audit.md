@@ -1,5 +1,9 @@
 # CNIPA 申请人名称预检
 
+## 2026-10-01 R4C1 H1 parser 状态
+
+R4C1 generic parser regression 对冻结的 45 行有效 H1 语料达到 issuer、year-end name、evidence-state 各 45/45，原 25 行正确对照无回退。由于 fixed strict-14 rows 与 6-event roster 的源 TXT 未保存在本机，无法对升级后的 parser 独立重算 Gate；旧 Gate 摘要不作为本轮验证。因此 `h1_parser_repair_status=H1_PARSER_REPAIR_NEEDS_FIX`，下一步需在本地证据可用后重算 strict-14 和六事件，再决定是否 PASS。全范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；H2/OCR/Full closure、`zero_semantics` 与 `missing_semantics` 均未完成。本轮没有网络请求、Full refresh 或专利系统访问。
+
 ## 范围与结论
 
 目标来自完成身份键纠正后的沪深非金融企业 Phase A：5,269 家、28,537 个 2020—2025 firm-year。主窗口 2020—2024 为 23,448 行；2025 年 5,089 行仅作覆盖审计。目标键与本地正式 manifest、财务面板和历史省份面板逐行一致。来源总体为 5,687 家、30,317 行；BSE 286 家仍待官方映射，金融业企业 132 家继续排除。

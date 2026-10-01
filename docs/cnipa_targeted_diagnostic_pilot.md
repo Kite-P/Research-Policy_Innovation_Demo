@@ -14,6 +14,12 @@ R4C0 将执行完整性与名称修复准备度分开判定。冻结的 94 行 /
 
 复现语料、逐行 TXT/审查依据、指纹、分类表及 R4C1 通用修复候选仅保存在 ignored `results/cnipa_full_gap_diagnosis/r4c0_20261001/`。本轮网络、H2、OCR、Full refresh 均为 0；生产 parser、Full 状态/cache、coverage 和 frozen GT 未改。
 
+## 4.4A-R4C1 H1 parser 通用修复结果（2026-10-01）
+
+R4C1 对冻结的 45 行 / 40 家 VALID_FULL_H1 corpus 重放前确认 R4C0 reviewed-key、evidence-hash、baseline-prediction、independent-review 与 frame fingerprints 均与冻结摘要一致；v2 baseline 为 issuer 27/45、year-end 26/45、evidence-state 28/45，原本三项全对 25 行。通用 parser 升至 `issuer_scope_v3` 后，重放结果为三项各 45/45，25 行负向回归控制 25/25 无回退。没有 firm key、股票代码或审阅名称特判。分类维持 R4C0 的 FIELD_BOUNDARY_ERROR 1、LABEL_LAYOUT_UNMATCHED 14、ISSUER_SCOPE_ERROR 3、TEMPORAL_EVIDENCE_OVERCLAIM 2；版式子聚类为报告标题/封面名称块 12、释义先行/重复标签 1、其他标签或章节变体 1。逐行结果与聚类仅存 ignored R4C1 结果目录。
+
+R4C1 未能重新计算冻结 strict-14 Pilot 与 6-event metrics：对应 14 行不与 45 行语料重叠，本地没有 strict-14 年报 TXT；已有 Gate summary 是旧解析器结果，不能当作 v3 重算。故本轮 `h1_parser_repair_status=H1_PARSER_REPAIR_NEEDS_FIX`，不宣称 Gate 仍经本轮验证通过。既有 Pilot v3 历史 Gate 记录不被改写。其他状态保持 `targeted_diagnostic_execution_status=TARGETED_DIAGNOSTIC_PILOT_COMPLETE`、`full_name_followup_status=FULL_NAME_FOLLOWUP_REQUIRED`、`cnipa_entity_name_scope_status=CNIPA_ENTITY_NAME_NEEDS_FIX`、`zero_semantics=pending`、`missing_semantics=pending`。无网络/H2/OCR/Full refresh；Full/cache、frozen GT 未修改。
+
 ## 4.4A-R4B2 最终状态（2026-10-01）
 
 R4B2 在同一冻结 94 行 / 86 家 manifest 上续跑，三个冻结指纹均一致。R4B 历史 120 次 guarded attempts 保持不变；R4B2 新 epoch 共 53 次尝试、53 个响应、0 个传输异常、0 个预派发错误、0 个来源封锁，累计 173 次，未触及本 epoch 的 120 次预算。请求审计 53 行；已完成证据重下载 0；H2 请求 0。

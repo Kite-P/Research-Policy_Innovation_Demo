@@ -18,6 +18,7 @@ import requests
 
 from scripts import diagnose_cnipa_full_gaps_20260930 as r4a
 from scripts import run_cninfo_legal_name_recovery_20260929 as canonical
+from src.cnipa_annual_report_names import PARSER_REVISION as CURRENT_PARSER_REVISION
 from src.cnipa_annual_report_names import extract_annual_report_legal_name_evidence
 from src.cnipa_r4b2_audit import (
     MAX_INDEX_PAGES_PER_FIRM_YEAR,
@@ -49,7 +50,6 @@ FULL_CACHE_DIR = FULL_DIR / "cache"
 FULL_STATUS_PATH = FULL_DIR / "full_status.csv"
 FULL_STATE_PATH = FULL_DIR / "full_run_state.json"
 ENTITY_COVERAGE_PATH = ROOT / "results/cnipa_preflight/entity_year_name_coverage.csv"
-CURRENT_PARSER_REVISION = "issuer_scope_v2"
 EXPECTED_MANIFEST_SHA256 = "30C47523292A96F19EDF889ACDD0851B26887B08D60B91F06E14EF2D9420F78C"
 EXPECTED_FRAME_FINGERPRINT = "8e26547eda6d24ff78af39e8bf652128809d57b67414655495fba50b130bc2fb"
 EXPECTED_KEY_FINGERPRINT = "96D4FF6735B18707129CE2C4F485F0D22C3547F28A0A9DAF1C164330F4757861"

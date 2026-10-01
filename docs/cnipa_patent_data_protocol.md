@@ -6,6 +6,8 @@
 
 本阶段只完成接口准备，不注册、不登录、不下载专利、不绕过验证码，也不运行专利相关回归。
 
+2026-10-01 R4C1 仅进行离线 H1 年报名称解析器维护：45 行 frozen H1 parser regression 三项均为 45/45，但 strict-14 与六个 change-event 对新 revision 的重算因源文本缺失而未完成，状态为 `H1_PARSER_REPAIR_NEEDS_FIX`。本轮未访问专利系统，亦未执行 H2、OCR 或 Full refresh；专利来源、范围与 zero/missing 语义未改变。
+
 ## Time and entity scope
 
 - primary application year: 2020—2024;

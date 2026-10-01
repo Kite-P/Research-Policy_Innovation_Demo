@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.cnipa_annual_report_names import (  # noqa: E402
+    PARSER_REVISION,
     build_canonical_change_event_roster,
     extract_annual_report_legal_name_evidence,
     extract_company_name_change_announcement,
@@ -34,7 +35,6 @@ MANIFEST = ROOT / "results/real_financial_full/target_manifest.csv"
 SOURCE_CACHE = ROOT / "results/historical_province/cache"
 OUTPUT = ROOT / "results/cnipa_legal_name_recovery"
 SEED = "20260927"
-PARSER_REVISION = "issuer_scope_v2"
 STATUSES = {
     "PENDING",
     "COMPLETE_NO_CHANGE",

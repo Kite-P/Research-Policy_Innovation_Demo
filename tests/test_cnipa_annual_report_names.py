@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+from scripts import run_cninfo_legal_name_recovery_20260929 as recovery
 from scripts.run_cninfo_legal_name_recovery_20260929 import (
     _build_pilot_change_candidate_rows,
     _build_v2_strict_pilot_summary,
@@ -13,6 +16,8 @@ from scripts.run_cninfo_legal_name_recovery_20260929 import (
     _strict_pilot_authorized_v2,
 )
 from src.cnipa_annual_report_names import (
+    PARSER_REVISION,
+    _legal_value,
     build_canonical_change_event_roster,
     extract_annual_report_legal_name_evidence,
     extract_company_name_change_announcement,
@@ -22,6 +27,334 @@ from src.cnipa_annual_report_names import (
     validate_pdf_payload,
 )
 from src.historical_province_sources import CNINFOAnnualReportClient
+
+
+def test_parser_revision_is_canonical_and_runners_import_it():
+    root = Path(__file__).resolve().parents[1]
+    assert PARSER_REVISION == "issuer_scope_v3"
+    assert recovery.PARSER_REVISION == PARSER_REVISION
+
+    diagnostic_source = (root / "scripts/diagnose_cnipa_full_gaps_20260930.py").read_text(
+        encoding="utf-8"
+    )
+    pilot_source = (root / "scripts/run_cnipa_targeted_diagnostic_pilot_20260930.py").read_text(
+        encoding="utf-8"
+    )
+    assert "from src.cnipa_annual_report_names import PARSER_REVISION" in diagnostic_source
+    assert "PARSER_REVISION as CURRENT_PARSER_REVISION" in pilot_source
+    assert "issuer_scope_v3" not in diagnostic_source + pilot_source
+
+
+def test_parser_module_does_not_reference_review_artifacts_or_company_fixtures():
+    import pandas as pd
+
+    root = Path(__file__).resolve().parents[1]
+    parser_source = (root / "src/cnipa_annual_report_names.py").read_text(encoding="utf-8")
+    assert "results/" not in parser_source.lower()
+    assert "review_ground_truth" not in parser_source.lower()
+    assert "parser_root_cause" not in parser_source.lower()
+
+    corpus_path = (
+        root
+        / "results/cnipa_full_gap_diagnosis/r4c0_20261001/reviewed_h1_regression_corpus.csv"
+    )
+    if not corpus_path.is_file():
+        return
+    corpus = pd.read_csv(corpus_path, dtype=str, keep_default_na=False)
+    runner_paths = (
+        root / "scripts/run_cninfo_legal_name_recovery_20260929.py",
+        root / "scripts/run_cnipa_targeted_diagnostic_pilot_20260930.py",
+        root / "scripts/diagnose_cnipa_full_gaps_20260930.py",
+    )
+    source_tree = parser_source + "\n" + "\n".join(
+        path.read_text(encoding="utf-8") for path in runner_paths
+    )
+    stock_codes = {str(key).split(":")[1] for key in corpus.firm_key}
+    review_names = (
+        set(corpus.review_legal_name_at_year_end)
+        | set(corpus.review_previous_name)
+        | set(corpus.review_new_name)
+    )
+    for literal in stock_codes | review_names:
+        if len(literal) >= 6:
+            assert literal not in source_tree
+
+
+def test_legal_name_beginning_with_marker_character_is_preserved():
+    text = """2021年年度报告全文
+第二节 公司简介和主要财务指标
+公司的中文名称 无锡祥生医疗科技股份有限公司
+"""
+
+    result = extract_annual_report_legal_name_evidence(
+        text, expected_year=2021, source_report_title="2021年年度报告全文"
+    )
+
+    assert result["legal_name_current_in_report"] == "无锡祥生医疗科技股份有限公司"
+
+
+def test_legal_name_beginning_with_ordinary_negative_character_is_preserved():
+    assert _legal_value("否极泰来科技股份有限公司") == "否极泰来科技股份有限公司"
+
+
+def test_standalone_response_marker_is_removed_only_at_token_boundary():
+    assert _legal_value("无 | 华东材料科技股份有限公司") == "华东材料科技股份有限公司"
+    assert _legal_value("否：华东材料科技股份有限公司") == "华东材料科技股份有限公司"
+    assert _legal_value("不适用 华东材料科技股份有限公司") == "华东材料科技股份有限公司"
+
+
+def test_marker_word_without_a_following_legal_name_is_not_a_name():
+    assert _legal_value("无") == ""
+    assert _legal_value("不适用") == ""
+
+
+def test_ordinary_legal_name_is_unchanged_by_marker_handling():
+    assert _legal_value("华东材料科技股份有限公司") == "华东材料科技股份有限公司"
+
+
+def test_full_report_title_uses_matching_year_not_first_table_of_contents_title():
+    text = """目录：2023年度报告摘要
+正文开始
+第二节 公司简介和主要财务指标
+公司的中文名称 华东材料科技股份有限公司
+2024年年度报告全文
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["failure_reason"] == ""
+    assert result["legal_name_at_year_end"] == "华东材料科技股份有限公司"
+
+
+def test_full_report_title_supports_chinese_numerals_and_late_title_position():
+    text = "\n".join(["前置说明"] * 120) + "\n二〇二四年年度报告全文\n"
+    text += "第二节 公司简介和主要财务指标\n法定中文名称：华东材料科技股份有限公司\n"
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["failure_reason"] == ""
+    assert result["legal_name_current_in_report"] == "华东材料科技股份有限公司"
+
+
+def test_reference_to_an_annual_report_in_prose_is_not_a_report_title():
+    text = """审计报告其他信息包括2020年年度报告中涵盖的信息。
+2024年年度报告全文
+公司基本情况
+公司的中文名称：华东材料科技股份有限公司
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["failure_reason"] == ""
+    assert "2024年年度报告全文" in result["source_report_title"]
+
+
+def test_full_report_body_is_not_rejected_for_an_earlier_summary_reference():
+    text = """2024年度报告摘要（目录链接）
+2024年年度报告全文
+公司基本情况
+公司注册中文名称：华东材料科技股份有限公司
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["failure_reason"] == ""
+    assert result["legal_name_at_year_end"] == "华东材料科技股份有限公司"
+
+
+def test_report_title_year_mismatch_remains_rejected():
+    result = extract_annual_report_legal_name_evidence(
+        "2023年年度报告全文\n公司基本情况\n中文名称：华东材料科技股份有限公司",
+        expected_year=2024,
+    )
+
+    assert result["failure_reason"] == "report_year_mismatch"
+
+
+def test_missing_embedded_title_is_allowed_only_with_verified_full_report_metadata():
+    text = """公司基本情况
+公司的中文名称：华东材料科技股份有限公司
+"""
+    verified = extract_annual_report_legal_name_evidence(
+        text,
+        expected_year=2024,
+        source_report_year=2024,
+        source_is_official=True,
+        source_is_correct_issuer=True,
+        source_is_correct_year=True,
+        source_is_full_annual_report=True,
+    )
+    unverified = extract_annual_report_legal_name_evidence(
+        text,
+        expected_year=2024,
+        source_report_year=2024,
+        source_is_official=True,
+        source_is_correct_issuer=True,
+        source_is_correct_year=True,
+        source_is_full_annual_report=False,
+    )
+
+    assert verified["legal_name_at_year_end"] == "华东材料科技股份有限公司"
+    assert unverified["failure_reason"] == "annual_report_title_not_found"
+
+
+def test_supported_issuer_name_label_variants_require_basic_information_scope():
+    for label in ("法定中文名称", "公司注册中文名称", "中文名称"):
+        text = f"""2024年年度报告全文
+第二节 公司简介和主要财务指标
+一、公司基本情况
+（一）{label}：华东材料科技股份有限公司
+"""
+        result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+        assert result["legal_name_at_year_end"] == "华东材料科技股份有限公司"
+        assert result["matched_label"] == label
+
+
+def test_issuer_section_heading_variant_and_table_spacing_are_supported():
+    text = """2024年年度报告全文
+第三节 公司简介和主要财务指标
+公司代码        600001
+中文名称        华东材料科技股份有限公司
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["legal_name_at_year_end"] == "华东材料科技股份有限公司"
+
+
+def test_contents_heading_does_not_truncate_the_following_issuer_information_section():
+    text = """2024年年度报告全文
+公司简介和主要财务指标
+第一节 重要提示
+第二节 公司简介和主要财务指标
+公司的中文名称：华东材料科技股份有限公司
+第三节 管理层讨论与分析
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["legal_name_at_year_end"] == "华东材料科技股份有限公司"
+
+
+def test_label_value_on_next_line_and_multiline_legal_value_are_supported():
+    text = """2024年年度报告全文
+公司基本情况
+公司的中文名称
+华东材料科技
+股份有限公司
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["legal_name_at_year_end"] == "华东材料科技股份有限公司"
+
+
+def test_basic_information_label_does_not_match_glossary_or_subsidiary_names():
+    text = """2024年年度报告全文
+释义
+中文名称 指 子公司甲科技股份有限公司
+公司基本情况
+公司的中文名称：华东材料科技股份有限公司
+子公司名称：子公司乙科技股份有限公司
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["legal_name_at_year_end"] == "华东材料科技股份有限公司"
+
+
+def test_issuer_exact_name_label_beats_earlier_low_confidence_table_candidates():
+    text = """2024年年度报告全文
+第二节 公司简介和主要财务指标
+公司名称    控股子公司甲有限公司
+公司的中文名称    华东材料科技股份有限公司
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["legal_name_at_year_end"] == "华东材料科技股份有限公司"
+
+
+def test_labelled_investee_name_is_not_selected_as_issuer_name():
+    text = """2024年年度报告全文
+公司基本情况
+被投资单位中文名称：投资对象甲科技股份有限公司
+公司的中文名称：华东材料科技股份有限公司
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["legal_name_at_year_end"] == "华东材料科技股份有限公司"
+
+
+def test_ticker_or_geographic_words_do_not_suppress_an_issuer_candidate():
+    text = """2024年年度报告全文
+公司基本情况
+公司的中文名称：广东 TCL 智慧家电股份有限公司
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["legal_name_at_year_end"] == "广东 TCL 智慧家电股份有限公司"
+
+
+def test_nearby_unrelated_negative_answer_does_not_become_change_flag_no():
+    text = """2024年年度报告全文
+公司基本情况
+公司的中文名称：华东材料科技股份有限公司
+公司名称在报告期内是否变更
+董事会换届情况
+否
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["company_name_change_flag"] == "UNKNOWN"
+    assert result["evidence_status"] == "CONFIRMED_YEAR_END_NAME_ONLY"
+
+
+def test_dated_change_outside_report_year_does_not_imply_explicit_no_change():
+    text = """2024年年度报告全文
+公司基本情况
+公司的中文名称：华东材料科技股份有限公司
+公司名称变更情况
+2019年6月更名为华东材料科技股份有限公司
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["company_name_change_flag"] == "UNKNOWN"
+    assert result["evidence_status"] == "CONFIRMED_YEAR_END_NAME_ONLY"
+
+
+def test_explicit_report_period_name_change_confirms_change_without_inventing_day():
+    text = """2024年年度报告全文
+公司基本情况
+公司的中文名称：华东新材料科技股份有限公司
+报告期内，公司名称由华东材料科技股份有限公司变更为华东新材料科技股份有限公司。
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2024)
+
+    assert result["company_name_change_flag"] == "YES"
+    assert result["evidence_status"] == "CONFIRMED_NAME_CHANGE"
+    assert result["date_precision"] == "year"
+    assert result["change_effective_date"] == ""
+
+
+def test_unrelated_nearby_date_is_not_attached_to_historical_name_change():
+    text = """2023年年度报告全文
+公司基本情况
+公司的中文名称：华东材料科技股份有限公司
+2024年3月6日，其他事项办理完成。
+本公司名称由华东旧材料股份有限公司变更为华东材料科技股份有限公司。
+"""
+
+    result = extract_annual_report_legal_name_evidence(text, expected_year=2023)
+
+    assert result["company_name_change_flag"] == "UNKNOWN"
+    assert result["legal_name_at_year_end"] == "华东材料科技股份有限公司"
+    assert result["evidence_status"] == "CONFIRMED_YEAR_END_NAME_ONLY"
 
 
 def test_legacy_runner_main_delegates_to_canonical(monkeypatch):
@@ -210,7 +543,7 @@ def test_targeted_resume_ignores_stale_cache_rows_outside_manifest(tmp_path):
                 "firm_key": target[0],
                 "year": target[1],
                 "status": "PENDING",
-                "parser_revision": "issuer_scope_v2",
+                    "parser_revision": "issuer_scope_v3",
             }
         ),
         encoding="utf-8",
@@ -845,7 +1178,7 @@ def test_unrelated_company_date_is_not_attributed_to_issuer_name_change():
     assert result["evidence_status"] == "TEMPORAL_UNRESOLVED"
 
 
-def test_extracts_wrapped_old_new_names_and_event_date_from_name_change_section():
+def test_historical_change_pair_does_not_imply_no_change_in_report_year():
     text = """
 2022年年度报告
 公司的中文名称 云南旅游股份有限公司
@@ -864,12 +1197,12 @@ def test_extracts_wrapped_old_new_names_and_event_date_from_name_change_section(
     result = extract_annual_report_legal_name_evidence(
         text, expected_year=2022, source_report_title="云南旅游2022年年度报告全文"
     )
-    assert result["company_name_change_flag"] == "NO"
+    assert result["company_name_change_flag"] == "UNKNOWN"
     assert result["legal_name_previous"] == "昆明世博园股份有限公司"
     assert result["legal_name_new"] == "云南旅游股份有限公司"
     assert result["change_effective_date"] == "2010-09-16"
     assert result["date_precision"] == "exact_date"
-    assert result["evidence_status"] == "CONFIRMED_NO_CHANGE"
+    assert result["evidence_status"] == "CONFIRMED_YEAR_END_NAME_ONLY"
 
 
 def test_does_not_treat_subsidiary_old_name_labels_as_issuer_name_history():
@@ -961,13 +1294,13 @@ def test_resume_reuses_completed_and_pending_records_without_retrieval(tmp_path)
         "firm_key": "firm-a",
         "year": 2020,
         "status": "COMPLETE_NO_CHANGE",
-        "parser_revision": "issuer_scope_v2",
+            "parser_revision": "issuer_scope_v3",
     }
     pending = {
         "firm_key": "firm-a",
         "year": 2021,
         "status": "PENDING",
-        "parser_revision": "issuer_scope_v2",
+            "parser_revision": "issuer_scope_v3",
     }
     for index, record in enumerate((completed, pending)):
         (tmp_path / f"{index}.json").write_text(json.dumps(record), encoding="utf-8")
@@ -1100,10 +1433,9 @@ def test_issuer_name_change_disclosed_in_body_is_temporally_attributed():
     assert evidence["legal_name_previous"] == "上海龙宇燃油股份有限公司"
     assert evidence["legal_name_new"] == "上海龙宇数据股份有限公司"
     assert evidence["change_effective_date"] == "2023-01-05"
-    assert evidence["company_name_change_flag"] == "NO"
-    assert evidence["evidence_status"] == "CONFIRMED_NO_CHANGE"
+    assert evidence["company_name_change_flag"] == "UNKNOWN"
+    assert evidence["evidence_status"] == "CONFIRMED_YEAR_END_NAME_ONLY"
     assert evidence["legal_name_at_year_end"] == "上海龙宇燃油股份有限公司"
-    assert evidence["valid_to"] == "2023-01-05"
 
 
 def test_post_year_end_name_change_does_not_rewrite_fiscal_year_name():
@@ -1120,13 +1452,13 @@ def test_post_year_end_name_change_does_not_rewrite_fiscal_year_name():
         source_report_title="上海璞源化学材料集团股份有限公司2025 年年度报告",
     )
 
-    assert evidence["company_name_change_flag"] == "NO"
+    assert evidence["company_name_change_flag"] == "UNKNOWN"
     assert evidence["legal_name_current_in_report"] == "上海璞源化学材料集团股份有限公司"
     assert evidence["legal_name_at_year_end"] == "日播时尚集团股份有限公司"
     assert evidence["change_effective_date"] == "2026-03-10"
 
 
-def test_historical_exact_name_change_is_no_for_later_report_year():
+def test_historical_exact_name_change_does_not_assert_report_year_no_without_field():
     report = (
         "2020年年度报告\n"
         "公司的中文名称 云南旅游股份有限公司\n"
@@ -1135,9 +1467,9 @@ def test_historical_exact_name_change_is_no_for_later_report_year():
     evidence = extract_annual_report_legal_name_evidence(
         report, expected_year=2020, source_report_title="2020年年度报告"
     )
-    assert evidence["company_name_change_flag"] == "NO"
+    assert evidence["company_name_change_flag"] == "UNKNOWN"
     assert evidence["legal_name_at_year_end"] == "云南旅游股份有限公司"
-    assert evidence["evidence_status"] == "CONFIRMED_NO_CHANGE"
+    assert evidence["evidence_status"] == "CONFIRMED_YEAR_END_NAME_ONLY"
 
 
 def test_candidate_builder_includes_union_of_change_signals_and_adjacent_names():

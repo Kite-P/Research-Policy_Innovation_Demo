@@ -5,10 +5,21 @@ import re
 import unicodedata
 from collections.abc import Iterable, Mapping
 
+PARSER_REVISION = "issuer_scope_v3"
+
 _LEGAL_SUFFIX = re.compile(r"(?:股份有限公司|有限责任公司|有限公司|股份公司)$")
 _LEGAL_LABELS = (
     "公司的中文名称",
     "公司中文名称",
+    "公司名称",
+    "公司全称",
+)
+_ISSUER_LEGAL_LABELS = (
+    "公司的中文名称",
+    "公司中文名称",
+    "公司注册中文名称",
+    "法定中文名称",
+    "中文名称",
     "公司名称",
     "公司全称",
 )
@@ -38,16 +49,31 @@ def _clean(value: str) -> str:
 
 
 def _legal_value(value: str) -> str:
-    candidate = _clean(value)
+    candidate = value.lstrip()
+    candidate = re.sub(
+        r"^(?:是|否|无|不适用)(?=$|[\s:：|｜])[\s:：|｜]*",
+        "",
+        candidate,
+    )
+    candidate = re.sub(r"[\s:：|｜]+", " ", candidate).strip()
+    candidate = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", candidate)
     candidate = re.sub(r"^(?:全称|中文全称|名称)\s*", "", candidate)
-    candidate = re.sub(r"^(?:是|否|无|不适用)\s*", "", candidate)
     candidate = re.split(r"[。；;，,\t]", candidate, maxsplit=1)[0]
     match = re.search(
-        r"([\u4e00-\u9fffA-Za-z0-9（）()·.\-]{2,100}"
+        r"([\u4e00-\u9fffA-Za-z0-9（）()·.\-\s]{2,120}?"
         r"(?:股份有限公司|有限责任公司|有限公司|股份公司))",
         candidate,
     )
-    return match.group(1) if match else ""
+    return match.group(1).strip() if match else ""
+
+
+def _normalize_legal_name(value: str) -> str:
+    normalized = re.sub(r"\s+", " ", unicodedata.normalize("NFKC", value)).strip()
+    return re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", normalized)
+
+
+def _legal_name_key(value: str) -> str:
+    return re.sub(r"\s+", "", unicodedata.normalize("NFKC", value))
 
 
 def _label_value(lines: list[str], labels: tuple[str, ...], max_following: int = 3) -> str:
@@ -57,16 +83,19 @@ def _label_value(lines: list[str], labels: tuple[str, ...], max_following: int =
 def _label_value_with_evidence(
     lines: list[str], labels: tuple[str, ...], max_following: int = 3
 ) -> tuple[str, str, str]:
-    for i, raw in enumerate(lines):
-        line = raw.strip()
-        for label in labels:
+    for label in labels:
+        for i, raw in enumerate(lines):
+            line = raw.strip()
             # Treat labels as fields, not substrings in glossary prose such as
             # “股份改制前公司名称” or branch/subsidiary definitions.
             match = re.match(
-                rf"^(?:[|｜]\s*)?{re.escape(label)}(?:\s*[:：|｜]\s*|\s+|$)",
+                rf"^(?:[|｜]\s*)?(?:[（(][一二三四五六七八九十]+[）)]\s*)?"
+                rf"{re.escape(label)}(?:\s*[:：|｜]\s*|\s+|$)",
                 line,
             )
             if not match:
+                continue
+            if re.search(r"(?:^|\s)指(?:\s|$)", line[match.end() :]):
                 continue
             if label in _SHORT_LABELS or any(
                 line.startswith(short) and label != short for short in _SHORT_LABELS
@@ -89,11 +118,62 @@ def _label_value_with_evidence(
     return "", "", ""
 
 
+def _annual_report_title_status(
+    text: str, source_report_title: str, expected_year: int
+) -> tuple[str, str]:
+    year_token = r"(?P<year>20\d{2}|[二〇○零一二三四五六七八九]{4})"
+    title_pattern = re.compile(
+        year_token
+        + r"\s*年?\s*年度报告(?:全文)?(?=$|[\s:：,，。；;（）()\[\]【】]|摘要|简版|节选)"
+    )
+    numeral_map = str.maketrans("〇○零一二三四五六七八九", "000123456789")
+    text_candidates = text.splitlines()
+    matching_years: set[int] = set()
+    full_titles: list[str] = []
+    summary_titles: list[str] = []
+    for candidate in text_candidates:
+        for match in title_pattern.finditer(candidate):
+            raw_year = match.group("year")
+            normalized_year = raw_year.translate(numeral_map)
+            year = int(normalized_year)
+            is_summary = bool(re.match(r"\s*(?:摘要|简版|节选)", candidate[match.end() :]))
+            if year == expected_year and not is_summary:
+                full_titles.append(candidate.strip())
+            elif year == expected_year:
+                summary_titles.append(candidate.strip())
+            matching_years.add(year)
+    if full_titles:
+        return "", full_titles[0]
+    source_matches = list(title_pattern.finditer(source_report_title))
+    if source_matches:
+        source_years = {
+            int(match.group("year").translate(numeral_map)) for match in source_matches
+        }
+        source_is_full = any(
+            match.group("year").translate(numeral_map) == str(expected_year)
+            and not re.match(r"\s*(?:摘要|简版|节选)", source_report_title[match.end() :])
+            for match in source_matches
+        )
+        if source_is_full and (not matching_years or expected_year in matching_years):
+            return "", source_report_title
+        matching_years.update(source_years)
+    if summary_titles:
+        return "annual_report_summary_rejected", summary_titles[0]
+    if matching_years:
+        return "report_year_mismatch", source_report_title
+    return "annual_report_title_not_found", source_report_title
+
+
 def extract_annual_report_legal_name_evidence(
     text: str,
     *,
     expected_year: int,
     source_report_title: str = "",
+    source_report_year: int | None = None,
+    source_is_official: bool = False,
+    source_is_correct_issuer: bool = False,
+    source_is_correct_year: bool = False,
+    source_is_full_annual_report: bool = False,
 ) -> dict[str, object]:
     title = re.sub(r"<[^>]+>", "", source_report_title or "").strip()
     result: dict[str, object] = {
@@ -114,52 +194,67 @@ def extract_annual_report_legal_name_evidence(
         "matched_label": "",
         "evidence_context": "",
     }
-    leading_lines = [line.strip() for line in text.splitlines()[:100] if line.strip()]
-    observed_title = next((line for line in leading_lines if "年度报告" in line), "")
-    title_for_check = title or observed_title
+    title_status, title_for_check = _annual_report_title_status(text, title, int(expected_year))
+    source_metadata_verified = (
+        source_report_year == int(expected_year)
+        and source_is_official
+        and source_is_correct_issuer
+        and source_is_correct_year
+        and source_is_full_annual_report
+    )
+    if title_status == "annual_report_title_not_found" and source_metadata_verified:
+        title_status = ""
     result["source_report_title"] = title_for_check
-    observed_year_match = re.search(r"(20\d{2})\s*年?年度报告", observed_title)
-    if observed_year_match and int(observed_year_match.group(1)) != int(expected_year):
-        result["failure_reason"] = "report_year_mismatch"
-        return result
-    full_title = re.search(r"20\d{2}\s*年?年度报告(?:全文)?", title_for_check)
-    if re.search(r"年度报告摘要", observed_title or title_for_check) or (
-        title_for_check and not full_title
-    ):
-        result["failure_reason"] = "annual_report_summary_rejected"
-        return result
-    if not title_for_check:
-        result["failure_reason"] = "annual_report_title_not_found"
-        return result
-    years = {int(v) for v in re.findall(r"(?<!\d)(20\d{2})(?!\d)", title_for_check)}
-    years |= {int(v) for v in re.findall(r"(?<!\d)(20\d{2})(?!\d)", text[:5000])}
-    if years and int(expected_year) not in years:
-        result["failure_reason"] = "report_year_mismatch"
+    if title_status:
+        result["failure_reason"] = title_status
         return result
 
     lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
-    issuer_info_start = next(
-        (
-            index
-            for index, line in enumerate(lines)
-            if re.fullmatch(r"(?:第二节\s+公司简介和主要财务指标|公司基本情况)", line)
-        ),
-        -1,
+    issuer_heading = re.compile(
+        r"(?:(?:第[二三]节\s*)?公司简介和主要财务指标|"
+        r"公司基本情况(?:简介)?|[一二三四五六七八九十]+[、.．]\s*公司简介)"
     )
-    issuer_info_lines = lines
-    if issuer_info_start >= 0:
-        issuer_info_end = next(
+    heading_indexes = [
+        index for index, line in enumerate(lines) if issuer_heading.fullmatch(line)
+    ]
+
+    def section_end(start: int) -> int:
+        return next(
             (
                 index
-                for index in range(issuer_info_start + 1, len(lines))
-                if re.match(r"\s*第[三四五六七八九十]+节", lines[index])
+                for index in range(start + 1, len(lines))
+                if re.match(r"\s*第[一二三四五六七八九十]+节", lines[index])
+                and not issuer_heading.fullmatch(lines[index])
             ),
             len(lines),
         )
-        issuer_info_lines = lines[issuer_info_start:issuer_info_end]
-    legal, legal_label, legal_context = _label_value_with_evidence(issuer_info_lines, _LEGAL_LABELS)
-    if not legal and issuer_info_lines is not lines:
-        legal, legal_label, legal_context = _label_value_with_evidence(lines, _LEGAL_LABELS)
+
+    issuer_info_start = -1
+    issuer_info_lines = lines
+    for heading_index in heading_indexes:
+        candidate_lines = lines[heading_index : section_end(heading_index)]
+        candidate_name, _, _ = _label_value_with_evidence(
+            candidate_lines, _ISSUER_LEGAL_LABELS
+        )
+        if candidate_name:
+            issuer_info_start = heading_index
+            issuer_info_lines = candidate_lines
+            break
+    if issuer_info_start < 0 and heading_indexes:
+        issuer_info_start = heading_indexes[0]
+        issuer_info_lines = lines[issuer_info_start : section_end(issuer_info_start)]
+    legal, legal_label, legal_context = _label_value_with_evidence(
+        issuer_info_lines,
+        _ISSUER_LEGAL_LABELS if issuer_info_start >= 0 else _LEGAL_LABELS,
+    )
+    if not legal and issuer_info_start < 0:
+        fallback_end = next(
+            (index for index, line in enumerate(lines[:500]) if line == "释义"),
+            min(len(lines), 500),
+        )
+        legal, legal_label, legal_context = _label_value_with_evidence(
+            lines[:fallback_end], _LEGAL_LABELS
+        )
     if legal:
         result["legal_name_current_in_report"] = legal
         result["legal_name_at_year_end"] = legal
@@ -189,22 +284,25 @@ def extract_annual_report_legal_name_evidence(
         match = re.match(rf"^{re.escape(flag_label)}\s*[:：|｜]?\s*(.*)$", line)
         value_parts = [match.group(1)] if match else []
         if not "".join(value_parts).strip():
-            for next_line in flag_scope[index + 1 : index + 7]:
-                if not next_line.strip():
-                    continue
-                if _FIELD_LABEL.search(next_line) or re.match(
-                    r"(?:第[一二三四五六七八九十]+节|[一二三四五六七八九十]+[、.．])", next_line
-                ):
-                    break
+            next_line = next(
+                (candidate.strip() for candidate in flag_scope[index + 1 :] if candidate.strip()),
+                "",
+            )
+            if re.match(
+                r"^(?:否|是|未变更|无变更|未发生(?:变更)?|有变更|发生变更)(?:$|[\s|｜,，。；;])",
+                next_line,
+            ):
                 value_parts.append(next_line)
-                if re.search(
-                    r"(?:^|[\s|｜])(?:否|是|未变更|无变更|有变更)(?:$|[\s|｜])", next_line
-                ):
-                    break
         value = " ".join(value_parts)
-        if re.search(r"(?:^|[\s|｜])(?:否|未变更|无变更|未发生)(?:$|[\s|｜])", value):
+        if re.match(
+            r"^(?:否|未变更|无变更|未发生(?:变更)?|(?:报告期内)?(?:公司名称)?(?:未变更|无变更|未发生变更))(?:$|[\s|｜,，。；;])",
+            value.strip(),
+        ):
             result["company_name_change_flag"] = "NO"
-        elif re.search(r"(?:^|[\s|｜])(?:是|有变更|发生变更)(?:$|[\s|｜])", value):
+        elif re.match(
+            r"^(?:是|有变更|发生变更|(?:报告期内)?(?:公司名称)?(?:有变更|发生变更))(?:$|[\s|｜,，。；;])",
+            value.strip(),
+        ):
             result["company_name_change_flag"] = "YES"
         break
 
@@ -257,37 +355,42 @@ def extract_annual_report_legal_name_evidence(
     issuer_change_line = ""
     issuer_change_match = None
     legal_name_pattern = (
-        r"([\u4e00-\u9fffA-Za-z0-9（）()·.\-]{2,100}?"
+        r"([\u4e00-\u9fffA-Za-z0-9（）()·.\-\s]{2,120}?"
         r"(?:股份有限公司|有限责任公司|有限公司|股份公司))"
     )
     issuer_name_change_pattern = re.compile(
-        r"(?:本公司|公司全称|公司名称)[^，。；]{0,30}?由"
+        r"(?:本公司|公司全称|公司名称)[^，。；]{0,30}?由[“\"「『]?"
         + legal_name_pattern
-        + r"[^，。；]{0,30}?变更为"
+        + r"[”\"」』]?[^，。；]{0,30}?变更为[“\"「『]?"
         + legal_name_pattern
+        + r"[”\"」』]?"
     )
-    for index in range(len(lines)):
-        window = "".join(lines[index : index + 3])
-        compact_window = re.sub(r"\s+", "", window)
-        if "公司名称" not in compact_window and "公司全称" not in compact_window:
+    explicit_report_period_change = False
+    paragraphs = re.split(r"(?<=[。；;])", "\n".join(lines))
+    for paragraph in paragraphs:
+        if "公司名称" not in paragraph and "公司全称" not in paragraph:
             continue
         match = re.search(
             issuer_name_change_pattern,
-            compact_window,
+            paragraph,
         )
         if (
             match
-            and (match.group(2) == legal or match.group(1) == legal)
-            and not re.search(r"子公司|被购买方|被投资单位|客户|供应商", compact_window)
+            and legal
+            and _legal_name_key(match.group(2)) == _legal_name_key(legal)
+            and not re.search(r"子公司|被购买方|被投资单位|客户|供应商", paragraph)
         ):
-            issuer_change_line = compact_window
+            issuer_change_line = paragraph
             issuer_change_match = match
+            explicit_report_period_change = bool(
+                re.search(r"报告期内.{0,20}$", paragraph[: match.start()])
+            )
             break
 
     date_match = None
     if issuer_change_match:
-        result["legal_name_previous"] = issuer_change_match.group(1)
-        result["legal_name_new"] = issuer_change_match.group(2)
+        result["legal_name_previous"] = _normalize_legal_name(issuer_change_match.group(1))
+        result["legal_name_new"] = _normalize_legal_name(issuer_change_match.group(2))
         date_matches = list(
             re.finditer(
                 r"(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日",
@@ -304,6 +407,9 @@ def extract_annual_report_legal_name_evidence(
     if result["legal_name_previous"] and result["legal_name_new"]:
         if date_match:
             pass
+        elif issuer_change_match:
+            # A date elsewhere in the report is not evidence for this specific name pair.
+            date_match = None
         elif name_change_section:
             date_match = re.search(
                 r"名称.{0,20}自\s*(20\d{2})\s*年\s*(\d{1,2})"
@@ -356,11 +462,12 @@ def extract_annual_report_legal_name_evidence(
             result.update(valid_from="", valid_to=date)
             if change_year <= expected_year:
                 result["legal_name_at_year_end"] = str(result["legal_name_new"])
-        if result["company_name_change_flag"] == "UNKNOWN":
-            if change_year == expected_year:
-                result["company_name_change_flag"] = "YES"
-            else:
-                result["company_name_change_flag"] = "NO"
+    if explicit_report_period_change and result["company_name_change_flag"] == "UNKNOWN":
+        result["company_name_change_flag"] = "YES"
+        if not date_match or int(date_match.group(1)) != expected_year:
+            result["change_effective_date"] = ""
+            result["date_precision"] = "year"
+            result["temporal_match_uncertain"] = 0
 
     if result["company_name_change_flag"] == "NO" and legal:
         result.update(
@@ -386,8 +493,10 @@ def extract_annual_report_legal_name_evidence(
         if (
             not result["legal_name_previous"]
             or not result["legal_name_new"]
-            or not date_match
-            or int(date_match.group(1)) != expected_year
+            or (
+                not explicit_report_period_change
+                and (not date_match or int(date_match.group(1)) != expected_year)
+            )
         ):
             result.update(
                 evidence_status="TEMPORAL_UNRESOLVED",

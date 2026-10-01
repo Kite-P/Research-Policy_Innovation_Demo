@@ -6,6 +6,8 @@ R4C0 对 R4B2 的状态重新核验后，当前 `targeted_diagnostic_execution_s
 
 R4A 的 `FULL_NAME_DIAGNOSIS_READY_FOR_TARGETED_PILOT` 与 R4B/R4B2 旧单轴 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX` 均为历史状态。固定 Pilot v3 Gate 仍为 `STRICT_PILOT_GATE_PASS`；全范围状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；`zero_semantics` 与 `missing_semantics` 仍为 pending。R4B/R4B2/R4C0 详情见 `docs/cnipa_targeted_diagnostic_pilot.md`。
 
+R4C1 将唯一 parser revision 集中到 `src/cnipa_annual_report_names.py` 的 `PARSER_REVISION=issuer_scope_v3`。冻结 R4C0 45 行重放为 issuer/year-end/evidence-state 各 45/45，原 25 个正确对照无回退；但固定 14 行与其 6 个事件缺少本地原始 TXT，不能用旧 Gate summary 替代 v3 重算。因此当前 H1 修复状态是 `H1_PARSER_REPAIR_NEEDS_FIX`，strict-14 与 event no-regression 尚未验证；原 Pilot v3 Gate PASS 仅作为历史独立结果保留。未运行网络、H2、OCR 或 Full refresh，未改 Full/cache/GT。
+
 ## Full baseline 与覆盖分区
 
 主目标是 `formal_ready` 企业的 2020—2024 firm-year。entity-year coverage 文件另含 5,089 行 2025 审计记录；这些行不属于主目标，本轮按目标键交叉核对，不混入 Full 分母。主目标的 23,448 个键与 `full_status.csv` 完全一致且唯一；`full_run_state.json` 为 `stage=full`、`status=COMPLETE`、`status_key_set_exact=true`、`target_firm_years=23448`。

@@ -13,6 +13,8 @@ from typing import Any
 
 import pandas as pd
 
+from src.cnipa_annual_report_names import PARSER_REVISION
+
 ROOT = Path(__file__).resolve().parents[1]
 FULL_DIR = ROOT / "results/cnipa_legal_name_recovery"
 FULL_STATUS = FULL_DIR / "full_status.csv"
@@ -24,7 +26,7 @@ UNIVERSE = ROOT / "data/processed/real_company_universe_enriched.parquet"
 TARGET_MANIFEST = ROOT / "results/real_financial_full/target_manifest.csv"
 HISTORICAL_SOURCE_CACHE = ROOT / "results/historical_province/cache"
 OUTPUT_DIR = ROOT / "results/cnipa_full_gap_diagnosis"
-CURRENT_PARSER_REVISION = "issuer_scope_v2"
+CURRENT_PARSER_REVISION = PARSER_REVISION
 PILOT_SEED = "20260930"
 EXPECTED_FULL_ROWS = 23448
 
