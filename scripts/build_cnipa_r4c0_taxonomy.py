@@ -305,20 +305,8 @@ def main() -> None:
     write_csv(pd.DataFrame(fix_plans), "r4c1_parser_fix_plan.csv")
 
     state_mismatch = build_evidence_state_mismatches(corpus)
-    state_mismatch["cause_family"] = [
-        "explicit evidence missed"
-        if name == "PARSER_UNKNOWN_REVIEW_YES"
-        else "absence incorrectly converted to NO"
-        if name == "PARSER_NO_REVIEW_UNKNOWN"
-        else "name-change field layout missed"
-        if name == "PARSER_UNKNOWN_REVIEW_NO"
-        else "temporal information insufficient"
-        if name == "PARSER_YES_REVIEW_UNKNOWN"
-        else "other"
-        if count
-        else "not_applicable"
-        for name, count in zip(state_mismatch.mismatch_category, state_mismatch.rows)
-    ]
+    if int(state_mismatch.rows.sum()) != int((~corpus.evidence_state_correct).sum()):
+        raise ValueError("EVIDENCE_STATE_MISMATCH_CLASSIFICATION_NOT_EXHAUSTIVE")
     write_csv(state_mismatch, "evidence_state_mismatch_distribution.csv")
 
     # The previously declared 12-row extraction-layout cohort is represented by

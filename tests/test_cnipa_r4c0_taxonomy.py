@@ -222,18 +222,16 @@ def test_frozen_repository_corpus_recomputes_expected_metrics_and_all_error_rows
     state_rows = corpus.loc[~corpus.evidence_state_correct]
     state_distribution = build_evidence_state_mismatches(corpus)
     assert state_distribution.rows.sum() == len(state_rows) == 17
-    assert (
-        state_distribution.loc[
-            state_distribution.mismatch_category.eq("PARSER_UNKNOWN_REVIEW_YES"), "rows"
-        ].item()
-        == 15
-    )
-    assert (
-        state_distribution.loc[
-            state_distribution.mismatch_category.eq("PARSER_NO_REVIEW_UNKNOWN"), "rows"
-        ].item()
-        == 2
-    )
+    assert state_distribution.set_index("mismatch_category").rows.to_dict() == {
+        "LEGAL_NAME_EXTRACTION_FAILED -> CONFIRMED_YEAR_END_NAME_ONLY": 14,
+        "CONFIRMED_NO_CHANGE -> CONFIRMED_YEAR_END_NAME_ONLY": 2,
+        "CONFIRMED_YEAR_END_NAME_ONLY -> CONFIRMED_NAME_CHANGE": 1,
+    }
+    assert state_distribution.set_index("cause_family").rows.to_dict() == {
+        "explicit evidence missed": 14,
+        "absence incorrectly converted to NO": 2,
+        "change-event evidence underextracted": 1,
+    }
 
 
 def test_root_cause_classification_does_not_depend_on_firm_identifier():

@@ -296,32 +296,28 @@ def infer_root_cause(row: dict[str, object], text: str = "") -> tuple[str, str, 
 
 
 def build_evidence_state_mismatches(corpus: pd.DataFrame) -> pd.DataFrame:
-    names = [
-        "PARSER_YES_REVIEW_NO",
-        "PARSER_YES_REVIEW_UNKNOWN",
-        "PARSER_NO_REVIEW_YES",
-        "PARSER_NO_REVIEW_UNKNOWN",
-        "PARSER_UNKNOWN_REVIEW_YES",
-        "PARSER_UNKNOWN_REVIEW_NO",
-        "OTHER",
-    ]
-    counts: Counter[str] = Counter()
+    counts: Counter[tuple[str, str, str]] = Counter()
     for row in corpus.loc[~corpus.evidence_state_correct].to_dict(orient="records"):
         parser = str(row["parser_evidence_state"])
         review = str(row["review_evidence_state"])
-        # Year-end-only evidence establishes the name but does not establish
-        # that no change event occurred; a parser NO is therefore UNKNOWN on
-        # the event axis, not a matching negative.
-        if parser == "CONFIRMED_NO_CHANGE" and review == "CONFIRMED_YEAR_END_NAME_ONLY":
-            category = "PARSER_NO_REVIEW_UNKNOWN"
-        elif parser in {"UNKNOWN", "LEGAL_NAME_EXTRACTION_FAILED"} and review in {
-            "CONFIRMED_YEAR_END_NAME_ONLY",
-            "CONFIRMED_NAME_CHANGE",
-        }:
-            category = "PARSER_UNKNOWN_REVIEW_YES"
+        if parser == "LEGAL_NAME_EXTRACTION_FAILED" and review == "CONFIRMED_YEAR_END_NAME_ONLY":
+            cause = "explicit evidence missed"
+        elif parser == "CONFIRMED_NO_CHANGE" and review == "CONFIRMED_YEAR_END_NAME_ONLY":
+            cause = "absence incorrectly converted to NO"
         elif parser == "CONFIRMED_YEAR_END_NAME_ONLY" and review == "CONFIRMED_NAME_CHANGE":
-            category = "PARSER_UNKNOWN_REVIEW_YES"
+            cause = "change-event evidence underextracted"
         else:
-            category = "OTHER"
-        counts[category] += 1
-    return pd.DataFrame([{"mismatch_category": name, "rows": counts[name]} for name in names])
+            cause = "other"
+        counts[(parser, review, cause)] += 1
+    return pd.DataFrame(
+        [
+            {
+                "mismatch_category": f"{parser} -> {review}",
+                "parser_state": parser,
+                "review_state": review,
+                "rows": count,
+                "cause_family": cause,
+            }
+            for (parser, review, cause), count in sorted(counts.items())
+        ]
+    )
