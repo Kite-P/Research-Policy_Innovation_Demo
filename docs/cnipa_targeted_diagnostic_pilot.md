@@ -8,7 +8,7 @@ R4B2 在同一冻结 94 行 / 86 家 manifest 上续跑，三个冻结指纹均�
 
 旧 R4B 30 条 acquisition 均依据 prediction key/path/hash 映射到 frozen key，mapping unresolved=0；来源分类为 27 `VALID_FULL_H1`、2 `ANNUAL_REPORT_SUMMARY`、1 `WRONG_ISSUER`。累计来源分类为 45 份有效完整年报、8 份摘要、1 份错误发行人、10 份正文提取未解决。两份摘要和错误发行人的具体 frozen key 仅记于 ignored 来源台账。旧 27 条有效 H1 加新增 18 条有效 H1 均完成独立复核，合计 45/45。
 
-94 行均有终态：44 `TARGETED_H2_REQUIRED`、1 `SOURCE_REVIEW_PASS`、9 `SOURCE_IDENTITY_PROBLEM`、10 `OCR_OR_MANUAL_REQUIRED`、18 `INDEX_COMPLETE_RESULT_SET_NO_VALID_REPORT`、2 `SOURCE_UNRESOLVED`、10 `LOCAL_CONTROL_ONLY`。18 个索引行完整扫描未发现合格候选，另 2 行证券目录映射缺失，不能声称没有年报。HIGH 10 行中 7 行当前 parser 已纠正、2 行仍错误或空值、1 行来源错误；MEDIUM 10 行中 9 行正确、1 行仍错。MEDIUM 根因为通用 `FIELD_BOUNDARY_ERROR`：值规范化将以合法汉字“无”开头的名称误判为回答标记并剥除；本轮未改生产 parser。temporal 10 行为 9 行需定向 H2、1 行 H1 已足够；extraction 20 行 PDF 有效但 TXT 为空/过短，未运行 OCR。
+94 行均有终态：44 `TARGETED_H2_REQUIRED`、1 `SOURCE_REVIEW_PASS`、9 `SOURCE_IDENTITY_PROBLEM`、10 `OCR_OR_MANUAL_REQUIRED`、18 `INDEX_COMPLETE_RESULT_SET_NO_VALID_REPORT`、2 `SOURCE_UNRESOLVED`、10 `LOCAL_CONTROL_ONLY`。18 个索引行完整扫描未发现合格候选，另 2 行证券目录映射缺失，不能声称没有年报。HIGH 10 行中 7 行当前 parser 已纠正、2 行仍错误或空值、1 行来源错误；MEDIUM 10 行中 9 行正确、1 行仍错。MEDIUM 根因为通用 `FIELD_BOUNDARY_ERROR`：值规范化将以合法汉字“无”开头的名称误判为回答标记并剥除；本轮未改生产 parser。temporal 10 行为 9 行需定向 H2、1 行 H1 已足够。extraction 20 行分为 12 个完整年报正文的 parser layout gap 和 8 个官方年度报告摘要（非完整 H1）；另一个重叠 fetch/text 10 行的 PDF 有效但 TXT 为空/过短，均未运行 OCR。
 
 45 行 source-grounded review 的 parser accuracy：issuer name 27/45、year-end name 26/45、evidence-state 28/45；这是该独立复核样本的当前 parser 表现，不是 population accuracy。此前仅 27 行的 pre-network 子样本仍分别为 23/27、22/27、23/27，两个口径不应混用。
 

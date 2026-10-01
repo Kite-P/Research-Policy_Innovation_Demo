@@ -138,4 +138,4 @@ evidence-state validator 现在逐行按审核事实重推 `review_expected_pars
 
 > 上述为 R4B 首轮历史快照。当前累计状态以 R4B2 续跑核验为准：R4B2 新 epoch 53 次 guarded attempts、53 个响应、0 传输异常、0 预派发错误、0 来源封锁；R4B 历史 120 次不变，累计 173 次。30 条旧 acquisition 一对一映射无未决，旧来源分布为 27 完整有效 H1、2 摘要、1 错误发行人；累计身份复核为 45 完整有效 H1、8 摘要、1 错误发行人、10 TXT 提取未解决。45/45 有效 H1 已独立复核，94 行均有终态。当前状态 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`；R4C 仅计划，不执行批量修复。Full/cache/coverage/frozen GT 未改，也未访问 CNIPA 专利系统。
 
-MEDIUM 子样本确认通用 `FIELD_BOUNDARY_ERROR`：值规范化误将合法名称开头的“无”作为回答标记并剥除。这是待修复的通用边界问题，本轮没有更改生产 parser。HIGH 10 行为 7 条当前 parser 已纠正、2 条仍错/空、1 条来源错误；MEDIUM 10 行为 9 条正确、1 条仍错。temporal 10 行为 9 条 H2-required、1 条 H1 sufficient；extraction 20 行均为 TXT 空/短且未运行 OCR。索引样本中 18 行完整结果集无候选，另 2 行目录映射未解决，空结果不代表官方报告不存在。
+MEDIUM 子样本确认通用 `FIELD_BOUNDARY_ERROR`：值规范化误将合法名称开头的“无”作为回答标记并剥除。这是待修复的通用边界问题，本轮没有更改生产 parser。HIGH 10 行为 7 条当前 parser 已纠正、2 条仍错/空、1 条来源错误；MEDIUM 10 行为 9 条正确、1 条仍错。temporal 10 行为 9 条 H2-required、1 条 H1 sufficient。extraction 20 行包含 12 个完整年报正文 parser layout gap 和 8 份摘要来源；重叠 fetch/text 10 行则是 PDF 有效但 TXT 空/短，未运行 OCR。索引样本中 18 行完整结果集无候选，另 2 行目录映射未解决，空结果不代表官方报告不存在。
