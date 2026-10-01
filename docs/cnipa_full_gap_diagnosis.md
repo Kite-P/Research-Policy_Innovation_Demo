@@ -2,6 +2,14 @@
 
 ## 本轮范围与状态
 
+## 2026-10-01 R4C1-G 当前 v3 strict-14 replay
+
+以冻结 14 个 row-GT keys 和完整 14 行分母实跑当前 `issuer_scope_v3`。精确 H1 来源来自既有 status metadata：本地复用 0、单次 H1 GET 14、HTTP 200 14、来源校验失败 0、source block 0；H2 requests=0。frozen GT key fingerprint=`9a5dcbf6099c43b41711518d5dd5772d2d9eb20346e98fe632d5be178161bee1`，三份 GT raw SHA-256 均与冻结基准一致。
+
+row evidence-state=2/14，year-end name=13/14，candidate rows=2/14；六事件 old/new/effective-date/date-precision 分别为 3/6、3/6、3/6、3/6，unresolved events=3。1 条既有 H2 audit provenance 可 carry，2 个 H2 事件在禁止 H2 请求的范围下无法重放。Gate=`STRICT_PILOT_GATE_NEEDS_FIX`，`h1_parser_repair_status=H1_PARSER_REPAIR_NEEDS_FIX`。没有修改生产 parser/revision，未运行 Full 或其它研究流程。
+
+冻结 45-row H1 regression corpus 当前重放为三项 45/45，prior-correct 25 行 0 regressions。全范围仍 `CNIPA_ENTITY_NAME_NEEDS_FIX`；诊断执行 `TARGETED_DIAGNOSTIC_PILOT_COMPLETE`，follow-up `FULL_NAME_FOLLOWUP_REQUIRED`；`zero_semantics` / `missing_semantics` 均 pending。逐行结果仅位于 ignored `results/cnipa_preflight/strict14_v3_replay_20261001/`。以下 R4C0/R4C1 段落按各自阶段保留为历史记录。
+
 R4C0 对 R4B2 的状态重新核验后，当前 `targeted_diagnostic_execution_status=TARGETED_DIAGNOSTIC_PILOT_COMPLETE`，`full_name_followup_status=FULL_NAME_FOLLOWUP_REQUIRED`。94/94 行均为合法终态；来源未决、H2、OCR/人工待办是后续工作，不表示执行不完整。45 行 H1 parser discrepancy taxonomy 及 40 家样本的 aggregate 指纹/统计见 `docs/cnipa_targeted_diagnostic_pilot.md`；逐行信息留在 ignored results。
 
 R4A 的 `FULL_NAME_DIAGNOSIS_READY_FOR_TARGETED_PILOT` 与 R4B/R4B2 旧单轴 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX` 均为历史状态。固定 Pilot v3 Gate 仍为 `STRICT_PILOT_GATE_PASS`；全范围状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；`zero_semantics` 与 `missing_semantics` 仍为 pending。R4B/R4B2/R4C0 详情见 `docs/cnipa_targeted_diagnostic_pilot.md`。

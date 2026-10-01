@@ -2,6 +2,14 @@
 
 ## 执行结论
 
+## 4.4A-R4C1-G current-v3 Strict-14 replay（2026-10-01）
+
+冻结 row key 为 14/14 且与 evidence-state GT key set 完全一致，key fingerprint=`9a5dcbf6099c43b41711518d5dd5772d2d9eb20346e98fe632d5be178161bee1`。本地没有精确可复用 PDF/TXT；仅从已有 source metadata 对 14 个精确 CNINFO H1 年报 URL 各 GET 一次，HTTP 200 为 14/14，PDF/TXT 校验均通过，source block=0；H2 request=0。三份 GT 原始 SHA-256 与冻结值一致且未修改。
+
+`issuer_scope_v3` strict row denominator 固定为 14：evidence-state 2/14、year-end name 13/14；parser candidate rows=2，不改变分母。六事件 old/new/date/date-precision accuracy 分别为 3/6、3/6、3/6、3/6，unresolved events=3。可追溯并允许 carry 的既有 H2 provenance 为 1 条，另有 2 个 H2 事件无法在不发起 H2 请求时重放。结论：`STRICT_PILOT_GATE_NEEDS_FIX`、`h1_parser_repair_status=H1_PARSER_REPAIR_NEEDS_FIX`；本轮不改 parser/revision。
+
+冻结 45-row corpus 以当前 parser 重放为 issuer/year-end/evidence-state 各 45/45，prior-correct 25 行 regressions=0。诊断执行仍为 `TARGETED_DIAGNOSTIC_PILOT_COMPLETE`，follow-up=`FULL_NAME_FOLLOWUP_REQUIRED`，全范围=`CNIPA_ENTITY_NAME_NEEDS_FIX`，zero/missing semantics 均 pending。无 Full、专利系统、OCR 或其它研究流程访问；逐行材料只在 ignored `results/cnipa_preflight/strict14_v3_replay_20261001/`。
+
 ## 4.4A-R4C0 状态闭合与 H1 误差分类（2026-10-01）
 
 R4C0 将执行完整性与名称修复准备度分开判定。冻结的 94 行 / 86 家 Pilot 已有 94/94 个合法终态；53 条请求审计序号连续，64 条来源 provenance 全部映射，保护对象前后 SHA-256 一致。因此 `targeted_diagnostic_execution_status=TARGETED_DIAGNOSTIC_PILOT_COMPLETE`。其中 2 行 `SOURCE_UNRESOLVED`、44 行 `TARGETED_H2_REQUIRED`、10 行 `OCR_OR_MANUAL_REQUIRED` 均是已记录的终态，不再被误判为执行未完成。
@@ -13,6 +21,8 @@ R4C0 将执行完整性与名称修复准备度分开判定。冻结的 94 行 /
 固定回归语料的指纹如下，R4C1 parser 变更须绑定此组输入：reviewed keys `6d4b0b4d7f7d9bcebb3ffd34917b96f6329146a40fbe4458ff786471349bfdbd`；PDF/TXT evidence hashes `ae73d34758d8cfdb0a6e4a051ec8c1bd79c5e59d1082338b87bcdff5e64e777b`；parser predictions `5f0bf6ea30e99684106736c43be1c7f7f94cfb5715bf53d10499a13077ab581b`；independent review values `c2106221ceed4aa15c0d5b8d77204a36ceb07b3a1d4543b83cc02dedc04c43c4`；45-row corpus frame `a91d65868abc56c5fc537ce76b3d25fb82f6c434cecf17a780293b8bb8da0f80`；independent review source artifact SHA-256 `10aef21a9f2d441ed307a979c6e945197404f225301c91bdd332c43ecd9c4a81`。R4C1 plan 仅提出通用候选，尚未实施 parser 修改。
 
 复现语料、逐行 TXT/审查依据、指纹、分类表及 R4C1 通用修复候选仅保存在 ignored `results/cnipa_full_gap_diagnosis/r4c0_20261001/`。本轮网络、H2、OCR、Full refresh 均为 0；生产 parser、Full 状态/cache、coverage 和 frozen GT 未改。
+
+> 以下 R4C1 初始记录形成于 strict-14 源文件恢复之前；其中“无法重算”的状态已由本页 R4C1-G 当前 parser replay 结果取代。
 
 ## 4.4A-R4C1 H1 parser 通用修复结果（2026-10-01）
 

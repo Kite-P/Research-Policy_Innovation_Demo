@@ -1,8 +1,14 @@
 # CNIPA 申请人名称预检
 
-## 2026-10-01 R4C1 H1 parser 状态
+## 2026-10-01 R4C1-G issuer_scope_v3 Strict-14 重放
 
-R4C1 generic parser regression 对冻结的 45 行有效 H1 语料达到 issuer、year-end name、evidence-state 各 45/45，原 25 行正确对照无回退。由于 fixed strict-14 rows 与 6-event roster 的源 TXT 未保存在本机，无法对升级后的 parser 独立重算 Gate；旧 Gate 摘要不作为本轮验证。因此 `h1_parser_repair_status=H1_PARSER_REPAIR_NEEDS_FIX`，下一步需在本地证据可用后重算 strict-14 和六事件，再决定是否 PASS。全范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；H2/OCR/Full closure、`zero_semantics` 与 `missing_semantics` 均未完成。本轮没有网络请求、Full refresh 或专利系统访问。
+按冻结的 14 个 row-GT keys（fingerprint `9a5dcbf6099c43b41711518d5dd5772d2d9eb20346e98fe632d5be178161bee1`）完成当前 `issuer_scope_v3` 的逐份 H1 重放。此前本地无可复用的精确 PDF/TXT，故仅对既有 source metadata 中的 14 个精确 CNINFO 年报 URL 各发起 1 次 GET；14/14 HTTP 200，PDF/TXT 身份验证通过，source block=0；H2 requests=0。三份 frozen GT 的原始 SHA-256 与授权基准一致，重放前后未改动。
+
+strict row 分母保持 14：evidence-state 2/14，year-end legal name 13/14；当前 parser candidate rows=2、unresolved candidates=0，但未缩减评估分母。六事件 roster 指标为 old-name 3/6、new-name 3/6、effective-date 3/6、date-precision 3/6；unresolved events=3。仅 1 条既有 H2 audit 满足 carry provenance；另有 2 个 H2 事件在无新 H2 请求的前提下无法重放。当前 strict Gate=`STRICT_PILOT_GATE_NEEDS_FIX`，故 `h1_parser_repair_status=H1_PARSER_REPAIR_NEEDS_FIX`。本轮没有修改 parser 或 revision。
+
+冻结 45-row H1 corpus 重新执行结果为 issuer/year-end/evidence-state 各 45/45，prior-correct 25 行 regressions=0。全范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；`targeted_diagnostic_execution_status=TARGETED_DIAGNOSTIC_PILOT_COMPLETE`、`full_name_followup_status=FULL_NAME_FOLLOWUP_REQUIRED`；`zero_semantics` 与 `missing_semantics` 仍 pending。未触碰 Full/status/cache、CNIPA 专利系统、OCR 或其他研究流程。逐行 replay 明细保存在 ignored `results/cnipa_preflight/strict14_v3_replay_20261001/`。
+
+> 下文 R4C1 初始状态段记录的是 strict-14 源文件尚未恢复时的历史状态；已由本节 R4C1-G 实际重放结果取代。
 
 ## 范围与结论
 

@@ -6,7 +6,7 @@
 
 本阶段只完成接口准备，不注册、不登录、不下载专利、不绕过验证码，也不运行专利相关回归。
 
-2026-10-01 R4C1 仅进行离线 H1 年报名称解析器维护：45 行 frozen H1 parser regression 三项均为 45/45，但 strict-14 与六个 change-event 对新 revision 的重算因源文本缺失而未完成，状态为 `H1_PARSER_REPAIR_NEEDS_FIX`。本轮未访问专利系统，亦未执行 H2、OCR 或 Full refresh；专利来源、范围与 zero/missing 语义未改变。
+2026-10-01 R4C1-G 恢复并验证 strict-14 的 14 份精确 H1 年报来源（每 URL 单次 GET、HTTP 200；H2 request=0），以当前 `issuer_scope_v3` 重放仍未通过：row evidence-state 2/14、year-end name 13/14，六事件 old/new/date/date-precision 各 3/6，unresolved events=3。45-row frozen H1 regression 三项均 45/45，prior-correct 25 行无回退。状态为 `H1_PARSER_REPAIR_NEEDS_FIX`；未改 parser/revision、未访问专利系统，未执行 H2、OCR 或 Full refresh；专利来源、范围与 zero/missing 语义未改变。逐行 replay 输出仅在 ignored results。
 
 ## Time and entity scope
 
