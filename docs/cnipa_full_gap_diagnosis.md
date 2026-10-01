@@ -2,9 +2,9 @@
 
 ## 本轮范围与状态
 
-4.4A-R4A 的离线诊断状态见下文历史记录。R4B2 已在相同冻结 94-row manifest 上完成续跑：旧 R4B 的 120 次守门尝试保持不变，R4B2 新 epoch 53 次、53 个响应，累计 173 次；累计来源身份为 45 份有效完整年报、8 份摘要、1 份错误发行人、10 份正文提取未解决。45 条有效 H1 均独立复核，94 行均有终态，但 H2、OCR/人工复核和目录映射仍未解决，当前状态为 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。企业级材料仅保存在 ignored 的 `results/cnipa_full_gap_diagnosis/r4b_20260930/r4b2_20261001/`。
+R4C0 对 R4B2 的状态重新核验后，当前 `targeted_diagnostic_execution_status=TARGETED_DIAGNOSTIC_PILOT_COMPLETE`，`full_name_followup_status=FULL_NAME_FOLLOWUP_REQUIRED`。94/94 行均为合法终态；来源未决、H2、OCR/人工待办是后续工作，不表示执行不完整。45 行 H1 parser discrepancy taxonomy 及 40 家样本的 aggregate 指纹/统计见 `docs/cnipa_targeted_diagnostic_pilot.md`；逐行信息留在 ignored results。
 
-R4A 当时的离线诊断状态为 `FULL_NAME_DIAGNOSIS_READY_FOR_TARGETED_PILOT`，已由 R4B2 续跑后的 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX` 取代。固定 Pilot v3 Gate 仍为 `STRICT_PILOT_GATE_PASS`；全范围状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；`zero_semantics` 与 `missing_semantics` 仍为 pending。R4B/R4B2 详情见 `docs/cnipa_targeted_diagnostic_pilot.md`。
+R4A 的 `FULL_NAME_DIAGNOSIS_READY_FOR_TARGETED_PILOT` 与 R4B/R4B2 旧单轴 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX` 均为历史状态。固定 Pilot v3 Gate 仍为 `STRICT_PILOT_GATE_PASS`；全范围状态仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；`zero_semantics` 与 `missing_semantics` 仍为 pending。R4B/R4B2/R4C0 详情见 `docs/cnipa_targeted_diagnostic_pilot.md`。
 
 ## Full baseline 与覆盖分区
 

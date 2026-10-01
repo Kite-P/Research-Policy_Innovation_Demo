@@ -2,6 +2,18 @@
 
 ## 执行结论
 
+## 4.4A-R4C0 状态闭合与 H1 误差分类（2026-10-01）
+
+R4C0 将执行完整性与名称修复准备度分开判定。冻结的 94 行 / 86 家 Pilot 已有 94/94 个合法终态；53 条请求审计序号连续，64 条来源 provenance 全部映射，保护对象前后 SHA-256 一致。因此 `targeted_diagnostic_execution_status=TARGETED_DIAGNOSTIC_PILOT_COMPLETE`。其中 2 行 `SOURCE_UNRESOLVED`、44 行 `TARGETED_H2_REQUIRED`、10 行 `OCR_OR_MANUAL_REQUIRED` 均是已记录的终态，不再被误判为执行未完成。
+
+当前 `full_name_followup_status=FULL_NAME_FOLLOWUP_REQUIRED`：仍有 H1 parser discrepancy、H2、OCR/人工及来源/索引待办。它不改变 `cnipa_entity_name_scope_status=CNIPA_ENTITY_NAME_NEEDS_FIX`；Pilot v3 Gate 仍为 `STRICT_PILOT_GATE_PASS`，`zero_semantics` 与 `missing_semantics` 仍为 pending。旧单轴 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX` 仅作为旧状态定义下的历史记录，不再表达当前执行完整性。
+
+冻结的 45 个独立复核有效 H1 行（40 家）重算为 issuer 27/45、year-end 26/45、evidence-state 28/45；这是困难诊断样本，不是总体准确率。互斥 overlap 为：三项全对 25、仅 evidence 错 1、issuer 与 year-end 错 3、year-end 与 evidence 错 1、三项全错 15，其余类别为 0。发生至少一项偏差的 20 行中，通用根因分布为 `LABEL_LAYOUT_UNMATCHED` 14、`ISSUER_SCOPE_ERROR` 3、`TEMPORAL_EVIDENCE_OVERCLAIM` 2、`FIELD_BOUNDARY_ERROR` 1。MEDIUM 的边界问题确认是完整回答标记边界处理误删合法名称首字“无”；不包含企业特判。HIGH 中仍错的两行根因不同，分别为标签版式未覆盖和发行人范围误取。此前 12 个完整年报正文布局缺口在本轮均归为 `LABEL_LAYOUT_UNMATCHED`。17 个 evidence-state 不一致分为 parser UNKNOWN/review YES 15、parser NO/review UNKNOWN 2；45 行中另有 25 行虽需 H2，但当前三项 H1 parser 输出均正确，因此 H2 需求不计作 parser 错误。
+
+固定回归语料的指纹如下，R4C1 parser 变更须绑定此组输入：reviewed keys `6d4b0b4d7f7d9bcebb3ffd34917b96f6329146a40fbe4458ff786471349bfdbd`；PDF/TXT evidence hashes `ae73d34758d8cfdb0a6e4a051ec8c1bd79c5e59d1082338b87bcdff5e64e777b`；parser predictions `5f0bf6ea30e99684106736c43be1c7f7f94cfb5715bf53d10499a13077ab581b`；independent review values `c2106221ceed4aa15c0d5b8d77204a36ceb07b3a1d4543b83cc02dedc04c43c4`；45-row corpus frame `a91d65868abc56c5fc537ce76b3d25fb82f6c434cecf17a780293b8bb8da0f80`；independent review source artifact SHA-256 `10aef21a9f2d441ed307a979c6e945197404f225301c91bdd332c43ecd9c4a81`。R4C1 plan 仅提出通用候选，尚未实施 parser 修改。
+
+复现语料、逐行 TXT/审查依据、指纹、分类表及 R4C1 通用修复候选仅保存在 ignored `results/cnipa_full_gap_diagnosis/r4c0_20261001/`。本轮网络、H2、OCR、Full refresh 均为 0；生产 parser、Full 状态/cache、coverage 和 frozen GT 未改。
+
 ## 4.4A-R4B2 最终状态（2026-10-01）
 
 R4B2 在同一冻结 94 行 / 86 家 manifest 上续跑，三个冻结指纹均一致。R4B 历史 120 次 guarded attempts 保持不变；R4B2 新 epoch 共 53 次尝试、53 个响应、0 个传输异常、0 个预派发错误、0 个来源封锁，累计 173 次，未触及本 epoch 的 120 次预算。请求审计 53 行；已完成证据重下载 0；H2 请求 0。
@@ -12,7 +24,7 @@ R4B2 在同一冻结 94 行 / 86 家 manifest 上续跑，三个冻结指纹均�
 
 45 行 source-grounded review 的 parser accuracy：issuer name 27/45、year-end name 26/45、evidence-state 28/45；这是该独立复核样本的当前 parser 表现，不是 population accuracy。此前仅 27 行的 pre-network 子样本仍分别为 23/27、22/27、23/27，两个口径不应混用。
 
-当前仍为 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。Full/status/state/cache、coverage、R4A manifest 和 frozen GT 未改；未访问 CNIPA 专利系统。固定 v3 Pilot Gate 仍为 `STRICT_PILOT_GATE_PASS`，整体名称范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`，zero/missing semantics 仍 pending。R4C 仅生成 ignored 计划，不批量修复任何总体。
+> 本段中的 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX` 是 R4C0 状态拆分前的旧单轴历史状态；当前执行状态和后续准备度以本节 R4C0 结论为准。
 
 R4B2 最终全库验证：pytest 385 passed；Ruff `All checks passed!`；`uv pip check` 检查 116 packages 且全部兼容；push hygiene PASS。
 

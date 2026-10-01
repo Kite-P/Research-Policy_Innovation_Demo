@@ -134,8 +134,14 @@ evidence-state validator 现在逐行按审核事实重推 `review_expected_pars
 
 沿用冻结的 94-row / 86-firm R4A manifest，指纹与 R4A 一致。预算守门达到 120 后即停止；30 份 PDF 收到 HTTP 200 并完成 TXT，27 行通过官方来源/发行人/年度/完整报告身份核验，5 个 index 样本未找到可选报告，其余样本未完成。已取回文件离线解析得到 24 行 `CONFIRMED_YEAR_END_NAME_ONLY`、2 行 `CONFIRMED_NO_CHANGE`、4 行 `LEGAL_NAME_EXTRACTION_FAILED`；2 份 PDF 是年报摘要，另 1 份发行人身份不符。
 
-独立 source review 与 parser prediction 分离。17 行 PASS，67 行为 `SOURCE_UNRESOLVED`，10 个未联网控制为 `LOCAL_CONTROL_ONLY`。source-grounded issuer-name accuracy=16/17、year-end-name accuracy=16/17、evidence-state accuracy=17/17，仅适用于已审核子样本。HIGH 抽样 10 行中 7 行审核通过，old wrong=7、current corrected=7、current still wrong=0，3 行 unresolved；MEDIUM 10 行均通过来源审核，old wrong=1、current corrected=0、current still wrong=1。此结果不授权批量刷新。状态为 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。Full/status/state/cache、coverage、frozen GT 和 R4A 输入前后哈希一致。请求上限已用尽，本轮未继续请求。固定 Gate 仍为 `STRICT_PILOT_GATE_PASS`；整体仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；zero/missing semantics 仍 pending。汇总见 `docs/cnipa_targeted_diagnostic_pilot.md`。
+独立 source review 与 parser prediction 分离。17 行 PASS，67 行为 `SOURCE_UNRESOLVED`，10 个未联网控制为 `LOCAL_CONTROL_ONLY`。source-grounded issuer-name accuracy=16/17、year-end-name accuracy=16/17、evidence-state accuracy=17/17，仅适用于已审核子样本。HIGH 抽样 10 行中 7 行审核通过，old wrong=7、current corrected=7、current still wrong=0，3 行 unresolved；MEDIUM 10 行均通过来源审核，old wrong=1、current corrected=0、current still wrong=1。此结果不授权批量刷新。R4B 当时状态为 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`。Full/status/state/cache、coverage、frozen GT 和 R4A 输入前后哈希一致。请求上限已用尽，本轮未继续请求。固定 Gate 仍为 `STRICT_PILOT_GATE_PASS`；整体仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；zero/missing semantics 仍 pending。汇总见 `docs/cnipa_targeted_diagnostic_pilot.md`。
 
-> 上述为 R4B 首轮历史快照。当前累计状态以 R4B2 续跑核验为准：R4B2 新 epoch 53 次 guarded attempts、53 个响应、0 传输异常、0 预派发错误、0 来源封锁；R4B 历史 120 次不变，累计 173 次。30 条旧 acquisition 一对一映射无未决，旧来源分布为 27 完整有效 H1、2 摘要、1 错误发行人；累计身份复核为 45 完整有效 H1、8 摘要、1 错误发行人、10 TXT 提取未解决。45/45 有效 H1 已独立复核，94 行均有终态。当前状态 `TARGETED_DIAGNOSTIC_PILOT_NEEDS_FIX`；R4C 仅计划，不执行批量修复。Full/cache/coverage/frozen GT 未改，也未访问 CNIPA 专利系统。
+> 上述为 R4B 首轮历史快照。R4B2 的 53 次新 epoch attempts、来源分布及独立审核记录仍是不可变历史事实；其“当前状态”表述已由 R4C0 的双状态定义取代。
+
+## 4.4A-R4C0 当前诊断状态与 H1 taxonomy
+
+94 行冻结诊断 Pilot 的执行完整性为 `TARGETED_DIAGNOSTIC_PILOT_COMPLETE`（94/94 合法终态、审计和来源映射完整、保护输入哈希未变）；名称后续准备度为 `FULL_NAME_FOLLOWUP_REQUIRED`。`SOURCE_UNRESOLVED` 是终态，不再单独导致 execution incomplete。全范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`，v3 Gate 仍 PASS，zero/missing semantics 仍 pending。
+
+45 行独立复核 H1（40 家）当前 parser 指标为 issuer 27/45、year-end 26/45、evidence-state 28/45，仅代表困难诊断样本。互斥 overlap：三项全对 25、仅 evidence 错 1、issuer+year-end 错 3、year-end+evidence 错 1、三项全错 15。20 行至少一项错误的主要根因为标签版式未匹配 14、发行人范围误取 3、时间证据过度推断 2、字段边界错误 1。HIGH 当前错误两行分别属于标签版式未匹配和发行人范围误取。此前的 12 个完整年报 layout gap 均分层为标签版式未匹配。Evidence-state 17 个不一致为 parser UNKNOWN/review YES 15、parser NO/review UNKNOWN 2。H2-required 但三个 H1 parser 指标均正确的记录仍为正确，不归为 parser error。逐行分类、指纹和修复候选保存在 ignored R4C0 results。
 
 MEDIUM 子样本确认通用 `FIELD_BOUNDARY_ERROR`：值规范化误将合法名称开头的“无”作为回答标记并剥除。这是待修复的通用边界问题，本轮没有更改生产 parser。HIGH 10 行为 7 条当前 parser 已纠正、2 条仍错/空、1 条来源错误；MEDIUM 10 行为 9 条正确、1 条仍错。temporal 10 行为 9 条 H2-required、1 条 H1 sufficient。extraction 20 行包含 12 个完整年报正文 parser layout gap 和 8 份摘要来源；重叠 fetch/text 10 行则是 PDF 有效但 TXT 空/短，未运行 OCR。索引样本中 18 行完整结果集无候选，另 2 行目录映射未解决，空结果不代表官方报告不存在。
