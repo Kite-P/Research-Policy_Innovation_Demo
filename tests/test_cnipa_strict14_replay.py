@@ -7,9 +7,13 @@ import pandas as pd
 import pytest
 
 from src.cnipa_strict14_replay import (
+    apply_resolved_h2_to_rows,
     build_complete_row_predictions,
     build_event_roster,
+    build_h2_needed_manifest,
     build_source_manifest,
+    canonical_candidate_rows,
+    classify_strict14_gate,
     fetch_h1_sources,
     find_local_reusable_source,
     score_events,
@@ -425,3 +429,310 @@ def test_wide_resume_remains_blocked():
         encoding="utf-8"
     )
     assert "FULL_WIDE_REPARSE_BLOCKED" in source
+
+
+def test_canonical_candidates_include_adjacent_year_name_difference():
+    predictions = pd.DataFrame(
+        [
+            {
+                "firm_key": "SZSE:000001:2000-01-01",
+                "year": year,
+                "parser_company_name_change_flag": "UNKNOWN",
+                "parser_legal_name_previous": "",
+                "parser_legal_name_new": "",
+                "parser_legal_name_at_year_end": name,
+                "parser_legal_name_current_in_report": name,
+                "parser_evidence_status": "CONFIRMED_YEAR_END_NAME_ONLY",
+                "parser_failure_reason": "",
+            }
+            for year, name in [(2020, "Old Issuer"), (2021, "New Issuer")]
+        ]
+    )
+    candidates = canonical_candidate_rows(
+        predictions,
+        {("SZSE:000001:2000-01-01", 2020), ("SZSE:000001:2000-01-01", 2021)},
+    )
+    assert candidates.year.tolist() == [2020, 2021]
+    assert candidates.adjacent_year_name_change.tolist() == [True, True]
+
+
+def test_h2_manifest_uses_adjacent_prediction_pair_and_valid_local_carry():
+    key = "SZSE:000001:2000-01-01"
+    predictions = pd.DataFrame(
+        [
+            {"firm_key": key, "year": 2023, "parser_legal_name_at_year_end": "Old"},
+            {"firm_key": key, "year": 2024, "parser_legal_name_at_year_end": "New"},
+            {"firm_key": key, "year": 2025, "parser_legal_name_at_year_end": "Newest"},
+        ]
+    )
+    carry = {
+        "firm_key": key,
+        "year": 2025,
+        "previous_legal_name": "New",
+        "new_legal_name": "Newest",
+        "status": "RESOLVED_H2",
+        "notice_url": "https://static.cninfo.com.cn/finalpage/2026-01-01/1234567890.PDF",
+        "announcement_id": "1234567890",
+        "notice_pdf_sha256": "a" * 64,
+        "notice_pdf_bytes": 2048,
+    }
+    manifest = build_h2_needed_manifest(predictions, [carry])
+    assert list(zip(manifest.year, manifest.previous_legal_name, manifest.new_legal_name)) == [
+        (2024, "Old", "New"),
+        (2025, "New", "Newest"),
+    ]
+    assert manifest.iloc[1].existing_h2_status == "RESOLVED_H2"
+    assert bool(manifest.iloc[1].exact_h2_url_available)
+
+
+def test_h2_fusion_updates_row_predictions_with_canonical_fields_not_only_events():
+    key = "SZSE:000001:2000-01-01"
+    predictions = pd.DataFrame(
+        [
+            {
+                "firm_key": key,
+                "year": 2024,
+                "parser_company_name_change_flag": "UNKNOWN",
+                "parser_legal_name_at_year_end": "New",
+            }
+        ]
+    )
+    h2 = [
+        {
+            "firm_key": key,
+            "year": 2024,
+            "status": "RESOLVED_H2",
+            "previous_legal_name": "Old",
+            "new_legal_name": "New",
+            "company_name_change_flag": "YES",
+            "change_effective_date": "2024-06-01",
+            "date_precision": "exact_date",
+            "legal_name_at_year_end": "New",
+            "temporal_match_uncertain": 0,
+            "evidence_status": "CONFIRMED_NAME_CHANGE",
+            "notice_url": "https://static.cninfo.com.cn/finalpage/2025-01-01/1234567890.PDF",
+            "announcement_id": "1234567890",
+            "notice_pdf_sha256": "a" * 64,
+            "notice_pdf_bytes": 2048,
+        }
+    ]
+    fused = apply_resolved_h2_to_rows(predictions, h2)
+    row = fused.iloc[0]
+    assert row.parser_company_name_change_flag == "YES"
+    assert row.parser_legal_name_previous == "Old"
+    assert row.parser_legal_name_new == "New"
+    assert row.parser_change_effective_date == "2024-06-01"
+    assert row.parser_change_evidence_tier == "H2"
+    assert row.parser_change_evidence_url == h2[0]["notice_url"]
+
+
+def test_h2_manifest_does_not_accept_ground_truth_answers_as_input():
+    key = "SZSE:000001:2000-01-01"
+    predictions = pd.DataFrame(
+        [
+            {"firm_key": key, "year": 2020, "parser_legal_name_at_year_end": "A"},
+            {"firm_key": key, "year": 2021, "parser_legal_name_at_year_end": "B"},
+        ]
+    )
+    manifest = build_h2_needed_manifest(predictions, [])
+    assert manifest.loc[0, "previous_legal_name"] == "A"
+    assert manifest.loc[0, "new_legal_name"] == "B"
+
+
+def test_h2_fusion_never_changes_unknown_to_no_without_resolved_evidence():
+    predictions = pd.DataFrame(
+        [
+            {
+                "firm_key": "SZSE:000001:2000-01-01",
+                "year": 2024,
+                "parser_company_name_change_flag": "UNKNOWN",
+                "parser_legal_name_at_year_end": "Issuer",
+            }
+        ]
+    )
+    fused = apply_resolved_h2_to_rows(
+        predictions,
+        [
+            {
+                "firm_key": "SZSE:000001:2000-01-01",
+                "year": 2024,
+                "status": "H2_SOURCE_UNAVAILABLE",
+                "company_name_change_flag": "NO",
+            }
+        ],
+    )
+    assert fused.iloc[0].parser_company_name_change_flag == "UNKNOWN"
+
+
+def test_h2_pair_is_not_derived_without_adjacent_h1_name_difference():
+    key = "SZSE:000001:2000-01-01"
+    predictions = pd.DataFrame(
+        [
+            {"firm_key": key, "year": 2020, "parser_legal_name_at_year_end": "Same"},
+            {"firm_key": key, "year": 2021, "parser_legal_name_at_year_end": "Same"},
+        ]
+    )
+    assert build_h2_needed_manifest(predictions, []).empty
+
+
+def test_h2_target_can_use_prior_non_gt_h1_candidate_artifact():
+    key = "SSE:603003:2012-08-17"
+    predictions = pd.DataFrame(
+        [
+            {
+                "firm_key": key,
+                "year": 2023,
+                "parser_legal_name_at_year_end": "上海龙宇数据股份有限公司",
+            },
+        ]
+    )
+    legacy = [
+        {
+            "firm_key": key,
+            "year": 2023,
+            "legal_name_previous": "上海龙宇燃油股份有限公司",
+            "legal_name_new": "上海龙宇数据股份有限公司",
+            "change_effective_date": "2023-01-05",
+            "change_evidence_tier": "H1",
+            "evidence_status": "CONFIRMED_NAME_CHANGE",
+            "change_evidence_url": "https://static.cninfo.com.cn/finalpage/2024-04-30/1219927694.PDF",
+        }
+    ]
+    manifest = build_h2_needed_manifest(predictions, [], legacy)
+    assert len(manifest) == 1
+    assert manifest.iloc[0].derivation_basis == "existing_non_gt_h1_candidate_artifact"
+    assert manifest.iloc[0].previous_legal_name == "上海龙宇燃油股份有限公司"
+
+
+def test_h2_target_rejects_legacy_candidate_without_official_source():
+    key = "SSE:603003:2012-08-17"
+    predictions = pd.DataFrame(
+        [{"firm_key": key, "year": 2023, "parser_legal_name_at_year_end": "New"}]
+    )
+    legacy = [
+        {
+            "firm_key": key,
+            "year": 2023,
+            "legal_name_previous": "Old",
+            "legal_name_new": "New",
+            "change_effective_date": "2023-01-01",
+            "change_evidence_tier": "H1",
+            "evidence_status": "CONFIRMED_NAME_CHANGE",
+            "change_evidence_url": "https://example.com/x.pdf",
+        }
+    ]
+    assert build_h2_needed_manifest(predictions, [], legacy).empty
+
+
+def test_h2_guard_scopes_discovery_to_one_security_year_and_caps_requests(monkeypatch):
+    import requests
+
+    from scripts.replay_cnipa_strict14_g2 import GuardedH2Session
+    from src.historical_province_sources import CNINFO_ANNOUNCEMENT_QUERY_URL
+
+    def fake_request(self, method, url, **kwargs):
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b'{"announcements": [], "totalpages": 1}'
+        response.url = url
+        return response
+
+    monkeypatch.setattr(requests.Session, "request", fake_request)
+    target = pd.DataFrame(
+        [{"firm_key": f"SZSE:{i:06d}:2000-01-01", "year": 2024} for i in range(1, 26)]
+    )
+    session = GuardedH2Session(target)
+    session.current_key = ("SZSE:000001:2000-01-01", 2024)
+    with pytest.raises(RuntimeError, match="H2_DISCOVERY_SCOPE_VIOLATION"):
+        session.request(
+            "POST",
+            CNINFO_ANNOUNCEMENT_QUERY_URL,
+            data={
+                "stock": "000002,ORG",
+                "seDate": "2024-01-01~2025-03-31",
+                "searchkey": "公司名称变更",
+            },
+        )
+    params = {"stock": "000001,ORG", "seDate": "2024-01-01~2025-03-31", "searchkey": "公司名称变更"}
+    session.request("POST", CNINFO_ANNOUNCEMENT_QUERY_URL, data=params)
+    with pytest.raises(RuntimeError, match="H2_PER_TARGET_DISCOVERY_CAP_REACHED"):
+        session.request("POST", CNINFO_ANNOUNCEMENT_QUERY_URL, data=params)
+    for i in range(2, 25):
+        session.current_key = (f"SZSE:{i:06d}:2000-01-01", 2024)
+        params["stock"] = f"{i:06d},ORG"
+        session.request("POST", CNINFO_ANNOUNCEMENT_QUERY_URL, data=params)
+    session.current_key = ("SZSE:000025:2000-01-01", 2024)
+    params["stock"] = "000025,ORG"
+    with pytest.raises(RuntimeError, match="H2_GLOBAL_REQUEST_CAP_REACHED"):
+        session.request("POST", CNINFO_ANNOUNCEMENT_QUERY_URL, data=params)
+    assert len(session.attempts) == 24
+
+
+def test_h2_guard_caps_candidate_notice_pdfs_at_three_per_target(monkeypatch):
+    import requests
+
+    from scripts.replay_cnipa_strict14_g2 import GuardedH2Session
+
+    def fake_request(self, method, url, **kwargs):
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b"%PDF-" + b"x" * 2048
+        response.url = url
+        return response
+
+    monkeypatch.setattr(requests.Session, "request", fake_request)
+    target = pd.DataFrame([{"firm_key": "SZSE:000001:2000-01-01", "year": 2024}])
+    session = GuardedH2Session(target)
+    session.current_key = ("SZSE:000001:2000-01-01", 2024)
+    url = "https://static.cninfo.com.cn/finalpage/2025-01-01/1234567890.PDF"
+    for _ in range(3):
+        session.request("GET", url)
+    with pytest.raises(RuntimeError, match="H2_PER_TARGET_PDF_CAP_REACHED"):
+        session.request("GET", url)
+
+
+def test_prior_h1_only_two_of_fourteen_is_not_gate_input():
+    source = Path(__file__).resolve().parents[1] / "scripts/replay_cnipa_strict14_g2.py"
+    text = source.read_text(encoding="utf-8")
+    assert '"h1_only_evidence_state_correct": h1_scores["evidence_state_correct"]' in text
+    assert '"strict_gate_status": gate_status' in text
+    assert 'h1_scores["evidence_state_correct"] == 14' not in text
+
+
+def test_missing_required_h2_source_is_replay_incomplete_not_parser_failure():
+    assert (
+        classify_strict14_gate(
+            fused_evidence_correct=2,
+            fused_year_end_correct=13,
+            event_metrics={},
+            unresolved_candidate_count=0,
+            unresolved_event_count=3,
+            source_evidence_complete=False,
+            h2_query_pair_underived_count=0,
+        )
+        == "STRICT_PILOT_GATE_REPLAY_INCOMPLETE"
+    )
+
+
+def test_complete_evidence_with_mismatch_is_needs_fix_and_full_match_passes():
+    metrics = {
+        "event_old_accuracy": 1.0,
+        "event_new_accuracy": 1.0,
+        "event_date_accuracy": 1.0,
+        "event_date_precision_accuracy": 1.0,
+    }
+    kwargs = {
+        "event_metrics": metrics,
+        "unresolved_candidate_count": 0,
+        "unresolved_event_count": 0,
+        "source_evidence_complete": True,
+        "h2_query_pair_underived_count": 0,
+    }
+    assert (
+        classify_strict14_gate(fused_evidence_correct=13, fused_year_end_correct=14, **kwargs)
+        == "STRICT_PILOT_GATE_NEEDS_FIX"
+    )
+    assert (
+        classify_strict14_gate(fused_evidence_correct=14, fused_year_end_correct=14, **kwargs)
+        == "STRICT_PILOT_GATE_PASS"
+    )

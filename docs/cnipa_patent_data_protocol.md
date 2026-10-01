@@ -6,7 +6,13 @@
 
 本阶段只完成接口准备，不注册、不登录、不下载专利、不绕过验证码，也不运行专利相关回归。
 
-2026-10-01 R4C1-G 恢复并验证 strict-14 的 14 份精确 H1 年报来源（每 URL 单次 GET、HTTP 200；H2 request=0），以当前 `issuer_scope_v3` 重放仍未通过：row evidence-state 2/14、year-end name 13/14，六事件 old/new/date/date-precision 各 3/6，unresolved events=3。45-row frozen H1 regression 三项均 45/45，prior-correct 25 行无回退。状态为 `H1_PARSER_REPAIR_NEEDS_FIX`；未改 parser/revision、未访问专利系统，未执行 H2、OCR 或 Full refresh；专利来源、范围与 zero/missing 语义未改变。逐行 replay 输出仅在 ignored results。
+## 2026-10-01 当前 strict-14 状态（R4C1-G2）
+
+G2 从本地复用 14/14 H1 PDF/TXT（URL、PDF/TXT hash 均核验，H1 GET=0），按 canonical row fusion 与 candidate semantics 重新评分。H1-only 为 evidence-state 2/14、year-end 13/14；fused 为 4/14、13/14。4 个事件预测对固定 6 个分母，old/new/date/date precision 各 3/6，unresolved=3。H2 needed manifest=4，bounded network 共 10/24 HTTP attempts、3 次限定公告 discovery、4 个公告 PDF GET；有效 carry=1，独立确认 H2=2，另两目标证据未完成。Gate=`STRICT_PILOT_GATE_REPLAY_INCOMPLETE`，非 parser failure；`h1_parser_repair_status=H1_PARSER_REPAIR_NEEDS_FIX` 的原因是 `pending_canonical_replay_evidence`。Frozen45 45/45/45，prior-correct25 regressions=0。GT 与 Full/status/state/cache 未变；未访问 CNIPA 专利系统，未执行 OCR/Full refresh。专利来源、范围和 zero/missing 语义均未改变；详细企业级材料仅在 ignored results。
+
+## R4C1-G H1-only replay（历史非等价诊断）
+
+G1 曾对 14 份精确 H1 年报各 GET 一次（HTTP 200），得到 row evidence-state 2/14、year-end 13/14、六事件旧评分各 3/6；由于缺少 canonical H2 row fusion 与 adjacent-year candidate semantics，该结果已由 G2 取代，不能解释为当前 parser Gate accuracy。G1 未访问专利系统、未执行 H2/OCR/Full refresh，未改 parser/revision。
 
 ## Time and entity scope
 

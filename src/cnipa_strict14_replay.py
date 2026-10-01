@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -287,6 +288,232 @@ def score_strict_rows(
     }
 
 
+def canonical_candidate_rows(
+    predictions: pd.DataFrame, evaluation_keys: set[tuple[str, int]]
+) -> pd.DataFrame:
+    """Use the production Pilot candidate builder without duplicating its rules."""
+    from scripts.run_cninfo_legal_name_recovery_20260929 import (
+        _build_pilot_change_candidate_rows,
+    )
+
+    mapping = {
+        "parser_company_name_change_flag": "company_name_change_flag",
+        "parser_legal_name_previous": "legal_name_previous",
+        "parser_legal_name_new": "legal_name_new",
+        "parser_change_effective_date": "change_effective_date",
+        "parser_date_precision": "date_precision",
+        "parser_legal_name_at_year_end": "legal_name_at_year_end",
+        "parser_legal_name_current_in_report": "legal_name_current_in_report",
+        "parser_evidence_status": "evidence_status",
+        "parser_failure_reason": "failure_reason",
+        "parser_evidence_context": "evidence_context",
+        "parser_change_evidence_tier": "change_evidence_tier",
+        "parser_change_evidence_source": "change_evidence_source",
+        "parser_change_evidence_url": "change_evidence_url",
+        "parser_change_announcement_id": "change_announcement_id",
+        "parser_change_pdf_sha256": "change_pdf_sha256",
+    }
+    audit = predictions.rename(columns=mapping).copy()
+    source_url = predictions.get("source_url", pd.Series("", index=predictions.index))
+    audit = audit.drop(columns=["source_url"], errors="ignore")
+    statuses = predictions[["firm_key", "year"]].copy()
+    statuses["source_url"] = source_url
+    return _build_pilot_change_candidate_rows(audit, statuses, evaluation_keys)
+
+
+def _valid_h2_source(row: dict[str, object]) -> bool:
+    url = str(row.get("notice_url", row.get("change_evidence_url", "")) or "")
+    announcement_id = str(row.get("announcement_id", row.get("change_announcement_id", "")) or "")
+    digest = str(row.get("notice_pdf_sha256", row.get("change_pdf_sha256", "")) or "").lower()
+    try:
+        size = int(row.get("notice_pdf_bytes", row.get("change_pdf_bytes", 0)) or 0)
+    except (TypeError, ValueError):
+        size = 0
+    return bool(
+        url.startswith("https://static.cninfo.com.cn/finalpage/")
+        and url.lower().endswith(".pdf")
+        and announcement_id
+        and re.fullmatch(r"[0-9a-f]{64}", digest)
+        and size > 0
+    )
+
+
+def build_h2_needed_manifest(
+    predictions: pd.DataFrame,
+    existing_h2_records: Iterable[dict[str, object]],
+    legacy_candidates: Iterable[dict[str, object]] = (),
+) -> pd.DataFrame:
+    """Derive H2 pairs only from adjacent H1 name trajectories and proven carries."""
+    required = {"firm_key", "year", "parser_legal_name_at_year_end"}
+    if not required.issubset(predictions.columns):
+        raise ValueError("H2_MANIFEST_PREDICTION_COLUMNS_MISSING")
+    frame = predictions.copy()
+    frame["year"] = pd.to_numeric(frame.year, errors="raise").astype(int)
+    existing: dict[tuple[str, int], dict[str, object]] = {}
+    for source in existing_h2_records:
+        row = dict(source)
+        try:
+            year = int(row.get("year", -1))
+        except (TypeError, ValueError):
+            continue
+        if str(row.get("status", "")) == "RESOLVED_H2" and _valid_h2_source(row):
+            existing[(str(row.get("firm_key", "")), year)] = row
+
+    def name(row: pd.Series) -> str:
+        value = str(row.get("parser_legal_name_at_year_end", "") or "").strip()
+        if not value:
+            value = str(row.get("parser_legal_name_current_in_report", "") or "").strip()
+        return value
+
+    by_key = {
+        (str(row["firm_key"]), int(row["year"])): row
+        for row in frame.sort_values(["firm_key", "year"], kind="stable").to_dict("records")
+    }
+    output: list[dict[str, object]] = []
+    for (firm_key, year), current in sorted(by_key.items()):
+        previous = by_key.get((firm_key, year - 1))
+        if previous is None:
+            continue
+        old_name, new_name = name(pd.Series(previous)), name(pd.Series(current))
+        if (
+            not old_name
+            or not new_name
+            or unicodedata.normalize("NFKC", old_name) == unicodedata.normalize("NFKC", new_name)
+        ):
+            continue
+        carry = existing.get((firm_key, year))
+        if carry and (
+            str(carry.get("previous_legal_name", "")) != old_name
+            or str(carry.get("new_legal_name", "")) != new_name
+        ):
+            carry = None
+        h1_resolved = (
+            str(current.get("parser_company_name_change_flag", "")) == "YES"
+            and str(current.get("parser_legal_name_previous", "")) == old_name
+            and str(current.get("parser_legal_name_new", "")) == new_name
+            and str(current.get("parser_change_effective_date", "")).startswith(str(year))
+        )
+        if h1_resolved and carry is None:
+            continue
+        output.append(
+            {
+                "firm_key": firm_key,
+                "year": year,
+                "derivation_basis": "adjacent_year_h1_legal_name_difference",
+                "previous_legal_name": old_name,
+                "new_legal_name": new_name,
+                "existing_h2_status": "RESOLVED_H2" if carry else "",
+                "exact_h2_url_available": bool(carry),
+                "exact_h2_url": str(carry.get("notice_url", "")) if carry else "",
+                "requires_h2_discovery": not bool(carry),
+                "h1_already_resolved": bool(h1_resolved),
+            }
+        )
+    existing_targets = {(row["firm_key"], int(row["year"])) for row in output}
+    allowed_keys = set(by_key)
+    for record in legacy_candidates:
+        item = dict(record)
+        try:
+            year = int(item.get("year", -1))
+        except (TypeError, ValueError):
+            continue
+        key = (str(item.get("firm_key", "")), year)
+        effective_date = str(item.get("change_effective_date", ""))
+        old_name = str(item.get("legal_name_previous", "")).strip()
+        new_name = str(item.get("legal_name_new", "")).strip()
+        url = str(item.get("change_evidence_url", ""))
+        if (
+            key not in allowed_keys
+            or key in existing_targets
+            or str(item.get("change_evidence_tier", "")).upper() != "H1"
+            or str(item.get("evidence_status", "")) != "CONFIRMED_NAME_CHANGE"
+            or not re.match(r"^https://static\.cninfo\.com\.cn/finalpage/.+\.pdf$", url, re.I)
+            or not effective_date.startswith(str(year))
+            or not old_name
+            or not new_name
+        ):
+            continue
+        output.append(
+            {
+                "firm_key": key[0],
+                "year": year,
+                "derivation_basis": "existing_non_gt_h1_candidate_artifact",
+                "previous_legal_name": old_name,
+                "new_legal_name": new_name,
+                "existing_h2_status": "",
+                "exact_h2_url_available": False,
+                "exact_h2_url": "",
+                "requires_h2_discovery": True,
+                "h1_already_resolved": False,
+            }
+        )
+        existing_targets.add(key)
+    output.sort(key=lambda row: (str(row["firm_key"]), int(row["year"])))
+    return pd.DataFrame(
+        output,
+        columns=[
+            "firm_key",
+            "year",
+            "derivation_basis",
+            "previous_legal_name",
+            "new_legal_name",
+            "existing_h2_status",
+            "exact_h2_url_available",
+            "exact_h2_url",
+            "requires_h2_discovery",
+            "h1_already_resolved",
+        ],
+    )
+
+
+def apply_resolved_h2_to_rows(
+    predictions: pd.DataFrame, h2_records: Iterable[dict[str, object]]
+) -> pd.DataFrame:
+    """Apply the canonical resolver's resolved-H2 row field updates to predictions."""
+    output = predictions.copy()
+    for record in h2_records:
+        row = dict(record)
+        if str(row.get("status", "")) != "RESOLVED_H2" or not _valid_h2_source(row):
+            continue
+        key = (str(row.get("firm_key", "")), int(row.get("year", -1)))
+        mask = output.firm_key.astype(str).eq(key[0]) & pd.to_numeric(
+            output.year, errors="coerce"
+        ).eq(key[1])
+        if int(mask.sum()) != 1:
+            raise ValueError("H2_FUSION_ROW_KEY_MUST_MATCH_EXACTLY_ONCE")
+        status = str(row.get("evidence_status", ""))
+        flag = str(row.get("company_name_change_flag", ""))
+        if status not in {"CONFIRMED_NAME_CHANGE", "CONFIRMED_NO_CHANGE"}:
+            continue
+        if flag not in {"YES", "NO"}:
+            raise ValueError("RESOLVED_H2_FLAG_INVALID")
+        idx = output.index[mask][0]
+        updates = {
+            "parser_company_name_change_flag": flag,
+            "parser_legal_name_previous": str(row.get("previous_legal_name", "") or ""),
+            "parser_legal_name_new": str(row.get("new_legal_name", "") or ""),
+            "parser_change_effective_date": str(row.get("change_effective_date", "") or ""),
+            "parser_date_precision": str(row.get("date_precision", "unknown") or "unknown"),
+            "parser_valid_from": (
+                str(row.get("change_effective_date", "") or key[1]) if flag == "YES" else ""
+            ),
+            "parser_valid_to": "",
+            "parser_legal_name_at_year_end": str(row.get("legal_name_at_year_end", "") or ""),
+            "parser_temporal_match_uncertain": int(row.get("temporal_match_uncertain", 0) or 0),
+            "parser_evidence_status": status,
+            "parser_failure_reason": "",
+            "parser_status": "COMPLETE_NAME_CHANGE" if flag == "YES" else "COMPLETE_NO_CHANGE",
+            "parser_change_evidence_tier": "H2",
+            "parser_change_evidence_source": "CNINFO targeted company-name-change notice",
+            "parser_change_evidence_url": str(row.get("notice_url", "")),
+            "parser_change_announcement_id": str(row.get("announcement_id", "")),
+            "parser_change_pdf_sha256": str(row.get("notice_pdf_sha256", "")),
+        }
+        for column, value in updates.items():
+            output.loc[idx, column] = value
+    return output
+
+
 def build_event_roster(predictions: pd.DataFrame, h2_records: Iterable[dict[str, object]]):
 
     rows: list[dict[str, object]] = []
@@ -457,6 +684,39 @@ def score_events(predicted_events: pd.DataFrame, event_ground_truth: pd.DataFram
         "event_date_precision_accuracy": precision / denominator,
         "unresolved_event_count": unresolved,
     }
+
+
+def classify_strict14_gate(
+    *,
+    fused_evidence_correct: int,
+    fused_year_end_correct: int,
+    event_metrics: dict[str, object],
+    unresolved_candidate_count: int,
+    unresolved_event_count: int,
+    source_evidence_complete: bool,
+    h2_query_pair_underived_count: int,
+) -> str:
+    """Keep evidence replay incompleteness distinct from a completed-parser mismatch."""
+    if not source_evidence_complete or h2_query_pair_underived_count:
+        return "STRICT_PILOT_GATE_REPLAY_INCOMPLETE"
+    metrics_pass = all(
+        event_metrics.get(field) == 1.0
+        for field in (
+            "event_old_accuracy",
+            "event_new_accuracy",
+            "event_date_accuracy",
+            "event_date_precision_accuracy",
+        )
+    )
+    if (
+        fused_evidence_correct == 14
+        and fused_year_end_correct == 14
+        and metrics_pass
+        and unresolved_candidate_count == 0
+        and unresolved_event_count == 0
+    ):
+        return "STRICT_PILOT_GATE_PASS"
+    return "STRICT_PILOT_GATE_NEEDS_FIX"
 
 
 def verify_ground_truth_fingerprints(

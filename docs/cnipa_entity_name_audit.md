@@ -1,10 +1,20 @@
 # CNIPA 申请人名称预检
 
-## 2026-10-01 R4C1-G issuer_scope_v3 Strict-14 重放
+## 2026-10-01 R4C1-G2 当前 canonical-equivalent Strict-14 结论
 
-按冻结的 14 个 row-GT keys（fingerprint `9a5dcbf6099c43b41711518d5dd5772d2d9eb20346e98fe632d5be178161bee1`）完成当前 `issuer_scope_v3` 的逐份 H1 重放。此前本地无可复用的精确 PDF/TXT，故仅对既有 source metadata 中的 14 个精确 CNINFO 年报 URL 各发起 1 次 GET；14/14 HTTP 200，PDF/TXT 身份验证通过，source block=0；H2 requests=0。三份 frozen GT 的原始 SHA-256 与授权基准一致，重放前后未改动。
+R4C1-G2 本地复用了 14/14 精确 H1 PDF/TXT，URL、PDF hash、TXT hash 与 firm-year provenance 均核验一致，H1 GET=0。当前 Gate 使用 canonical row fusion 与候选构造：G1 的 2/14 evidence-state、13/14 year-end 和 2 个 candidate 均标记为 `H1_ONLY_NON_EQUIVALENT_REPLAY_RESULT`，不解释为 parser Gate 准确率。canonical H1-only candidate=7，融合后仍 7；相邻名称差异候选标记 5。全库验证：pytest 466 passed、Ruff All checks passed、uv dependency check 116 packages compatible；push hygiene 检查通过。
 
-strict row 分母保持 14：evidence-state 2/14，year-end legal name 13/14；当前 parser candidate rows=2、unresolved candidates=0，但未缩减评估分母。六事件 roster 指标为 old-name 3/6、new-name 3/6、effective-date 3/6、date-precision 3/6；unresolved events=3。仅 1 条既有 H2 audit 满足 carry provenance；另有 2 个 H2 事件在无新 H2 请求的前提下无法重放。当前 strict Gate=`STRICT_PILOT_GATE_NEEDS_FIX`，故 `h1_parser_repair_status=H1_PARSER_REPAIR_NEEDS_FIX`。本轮没有修改 parser 或 revision。
+H2 needed manifest=4，目标 pair 来自 H1 年度轨迹或已有非 GT H1 candidate artifact；pair underived=0。合法旧 H2 carry=1，限定 discovery=3，公告 PDF=4，HTTP requests 共 10/24；其中 1 次错误 discovery 参数被护栏在发送前拒绝。H2 SourceBlocked=0。新来源独立确认 1 条，另 carry 1 条。600936/2025 的 3 份候选公告均下载成功但 production extractor 未确认预期名称对；603003/2023 discovery 未返回公告。
+
+固定 14 行：H1-only evidence-state 2/14、year-end 13/14；fused evidence-state 4/14、year-end 13/14。4 个 event predictions 对冻结 6-event denominator：old/new/date/date precision 各 3/6，unresolved=3。因仍有 2 个 H2 目标未完成独立 source replay，当前状态为 `STRICT_PILOT_GATE_REPLAY_INCOMPLETE`，而非 `NEEDS_FIX`；`h1_parser_repair_status=H1_PARSER_REPAIR_NEEDS_FIX` 的原因是 `pending_canonical_replay_evidence`。parser revision 保持 `issuer_scope_v3`，未做 parser fix。
+
+300365/2020、/2021 的 H1 flags 均为 `UNKNOWN`，两条年末 issuer names 均与 frozen review 一致，分公司名未被当作 issuer。Frozen45 为 45/45/45，prior-correct25 回退为 0。三份 GT raw hashes 未变；Full `full_status`、run state 及 28,548-file / 40,412,037-byte cache 均与已有 frozen hashes 一致，`FULL_WIDE_REPARSE_BLOCKED` 保持。未访问专利系统。其它状态：targeted diagnostic complete、full-name follow-up required、entity-name scope needs fix、zero/missing semantics pending。企业级 evidence 留在 ignored `results/cnipa_preflight/strict14_g2_replay_20261001/`。
+
+## 2026-10-01 R4C1-G H1-only Strict-14 重放（历史非等价诊断）
+
+该历史 H1-only replay 使用冻结的 14 个 row-GT keys（fingerprint `9a5dcbf6099c43b41711518d5dd5772d2d9eb20346e98fe632d5be178161bee1`）。当时本地尚无可复用 PDF/TXT，对 14 个精确 H1 URL 各 GET 一次；HTTP 200 为 14/14，H2 requests=0。三份 GT raw SHA-256 保持冻结值。以上仅为 G1 当时的获取记录，不能代表 G2 的 H1 本地复用结果。
+
+该 H1-only replay 的 row 分母为 14：evidence-state 2/14、year-end legal name 13/14、candidate rows=2；六事件旧评分各 3/6。由于未融合 H2 到 row predictions，也未复现 canonical adjacent-year candidate semantics，`STRICT_PILOT_GATE_NEEDS_FIX` 不再作为 G2 当前结论；G2 结果见上节。parser/revision 当时未修改。
 
 冻结 45-row H1 corpus 重新执行结果为 issuer/year-end/evidence-state 各 45/45，prior-correct 25 行 regressions=0。全范围仍为 `CNIPA_ENTITY_NAME_NEEDS_FIX`；`targeted_diagnostic_execution_status=TARGETED_DIAGNOSTIC_PILOT_COMPLETE`、`full_name_followup_status=FULL_NAME_FOLLOWUP_REQUIRED`；`zero_semantics` 与 `missing_semantics` 仍 pending。未触碰 Full/status/cache、CNIPA 专利系统、OCR 或其他研究流程。逐行 replay 明细保存在 ignored `results/cnipa_preflight/strict14_v3_replay_20261001/`。
 
